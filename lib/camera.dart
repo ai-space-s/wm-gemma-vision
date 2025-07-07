@@ -65,11 +65,15 @@ class GemmaService {
     _initialised = true;
   }
 
-  Future<String> send({required String text, required File image}) async {
-    final bytes = await image.readAsBytes();
-    await _chat!.addQueryChunk(
-      Message.withImage(text: text, imageBytes: bytes, isUser: true),
-    );
+  Future<String> send({required String text, File? image}) async {
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      await _chat!.addQueryChunk(
+        Message.withImage(text: text, imageBytes: bytes, isUser: true),
+      );
+    } else {
+      await _chat!.addQueryChunk(Message(text: text, isUser: true));
+    }
     return _chat!.generateChatResponse();
   }
 
@@ -223,7 +227,23 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  // Ensures a valid camera session (avoids “Session closed” crash)
+  // Send without capturing image
+  Future<void> _sendTextOnly(String userPrompt) async {
+    try {
+      setState(() => _msgs.add(_Msg(userPrompt, isUser: true)));
+
+      final fullPrompt = '$_systemCtx\nUser: $userPrompt';
+      final reply = await _service.send(text: fullPrompt);
+
+      setState(() => _msgs.add(_Msg(reply, isUser: false)));
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _tts.speak(reply);
+    } catch (e) {
+      setState(() => _msgs.add(_Msg('Error: $e', isUser: false)));
+    }
+  }
+
+  // Ensures a valid camera session (avoids "Session closed" crash)
   Future<File?> _safeTakePicture() async {
     if (!_camera.value.isInitialized) {
       try {
@@ -280,7 +300,8 @@ class _ChatPageState extends State<ChatPage> {
             padding: const EdgeInsets.all(8),
             child: _PromptBar(
               key: _promptBarKey,
-              onPrompt: _captureAndSend,
+              onPromptWithPhoto: _captureAndSend,
+              onPromptTextOnly: _sendTextOnly,
               disabled: _resetting,
             ),
           ),
@@ -402,9 +423,15 @@ class _ChatBubble extends StatelessWidget {
 
 /// PROMPT BAR – dictation, custom prompt & quick buttons
 class _PromptBar extends StatefulWidget {
-  final Future<void> Function(String) onPrompt;
+  final Future<void> Function(String) onPromptWithPhoto;
+  final Future<void> Function(String) onPromptTextOnly;
   final bool disabled;
-  const _PromptBar({required this.onPrompt, this.disabled = false, super.key});
+  const _PromptBar({
+    required this.onPromptWithPhoto,
+    required this.onPromptTextOnly,
+    this.disabled = false,
+    super.key,
+  });
 
   @override
   State<_PromptBar> createState() => _PromptBarState();
@@ -432,7 +459,7 @@ class _PromptBarState extends State<_PromptBar> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _send(String prompt) async {
+  Future<void> _sendWithPhoto(String prompt) async {
     if (widget.disabled) return;
     final txt = prompt.trim();
     if (txt.isEmpty || _sending) return;
@@ -446,7 +473,27 @@ class _PromptBarState extends State<_PromptBar> {
     setState(() => _sending = true);
 
     try {
-      await widget.onPrompt(txt);
+      await widget.onPromptWithPhoto(txt);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _sendTextOnly(String prompt) async {
+    if (widget.disabled) return;
+    final txt = prompt.trim();
+    if (txt.isEmpty || _sending) return;
+
+    if (_listening) {
+      _listening = false;
+      await _speech.stop();
+    }
+
+    _ctrl.clear();
+    setState(() => _sending = true);
+
+    try {
+      await widget.onPromptTextOnly(txt);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -501,7 +548,7 @@ class _PromptBarState extends State<_PromptBar> {
                   controller: _ctrl,
                   enabled: !controlsDisabled,
                   decoration: const InputDecoration(hintText: 'Custom prompt…'),
-                  onSubmitted: _send,
+                  onSubmitted: _sendWithPhoto,
                 ),
               ),
               IconButton(
@@ -513,16 +560,44 @@ class _PromptBarState extends State<_PromptBar> {
                     ? null
                     : (_speechEnabled ? _toggleListening : null),
               ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: controlsDisabled ? null : () => _send(_ctrl.text),
-                child: _sending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send),
+              const SizedBox(width: 4),
+              Semantics(
+                label: 'Send',
+                child: ElevatedButton(
+                  onPressed: controlsDisabled
+                      ? null
+                      : () => _sendTextOnly(_ctrl.text),
+                  child: _sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Semantics(
+                label: 'Send with photo',
+                child: ElevatedButton(
+                  onPressed: controlsDisabled
+                      ? null
+                      : () => _sendWithPhoto(_ctrl.text),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: _sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.camera_alt),
+                ),
               ),
             ],
           ),
@@ -532,8 +607,10 @@ class _PromptBarState extends State<_PromptBar> {
             spacing: 8,
             children: [
               _quick('Describe the room', controlsDisabled),
+              _quick('Tell me what you see', controlsDisabled),
               _quick('Find an exit', controlsDisabled),
               _quick('Read text', controlsDisabled),
+              _quick('Summarise this', controlsDisabled),
               _quick('Identify obstacles', controlsDisabled),
             ],
           ),
@@ -543,7 +620,7 @@ class _PromptBarState extends State<_PromptBar> {
   }
 
   Widget _quick(String label, bool disabled) => ElevatedButton(
-    onPressed: disabled ? null : () => _send(label),
+    onPressed: disabled ? null : () => _sendWithPhoto(label),
     child: Text(label, textAlign: TextAlign.center),
   );
 }
