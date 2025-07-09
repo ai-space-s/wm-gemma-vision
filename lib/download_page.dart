@@ -222,10 +222,20 @@ class _DownloadPageState extends State<DownloadPage> {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/$_modelName');
+
       if (await file.exists()) {
-        _goToChat();
-        return;
+        // Check it’s not zero-length (or too small to be the real model)
+        final bytes = await file.length();
+        if (bytes > 0) {
+          // Looks like a valid file—proceed to chat
+          _goToChat();
+          return;
+        } else {
+          // Corrupt or empty file—delete and fall through to download UI
+          await file.delete();
+        }
       }
+
       final tasks = await FlutterDownloader.loadTasks();
       if (tasks != null) {
         for (final t in tasks) {
@@ -250,6 +260,7 @@ class _DownloadPageState extends State<DownloadPage> {
         }
       }
     } catch (_) {
+      // ignore
     } finally {
       setState(() => _checking = false);
     }

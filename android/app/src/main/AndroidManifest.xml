@@ -51,6 +51,11 @@
                     android:host="oauthredirect" />
             </intent-filter>
         </activity>
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false"/>
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false"/>
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false"/>
 
         <!-- flutter_downloader provider (keep yours as-is) -->
         <provider
