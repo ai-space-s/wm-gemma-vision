@@ -3,7 +3,7 @@
 //  Full demo app: vision-based chat with Gemma, camera, TTS & dictation
 //  Added backend toggle: CPU, NNAPI, GPU, TPU
 //  Enhanced with streaming text display, performance statistics,
-//  streaming TTS, and markdown rendering
+//  streaming TTS, markdown rendering, and IP camera support
 // ---------------------------------------------------------------------------
 
 import 'dart:async';
@@ -19,8 +19,14 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'download_page.dart'; // for fallback if model init fails
+
+/// Camera source enum
+enum CameraSource { phone, ip }
 
 /// Performance statistics for each message
 class MessageStats {
@@ -138,11 +144,11 @@ class StreamingTtsService {
   String _cleanMarkdownForTts(String text) {
     // Remove markdown formatting for better TTS
     return text
-        .replaceAll(RegExp(r'\*\*([^*]+)\*\*'), r'\1') // Bold
-        .replaceAll(RegExp(r'\*([^*]+)\*'), r'\1') // Italic
-        .replaceAll(RegExp(r'`([^`]+)`'), r'\1') // Inline code
+        .replaceAll(RegExp(r'\*\*([^*]+)\*\*'), r'$1') // Bold
+        .replaceAll(RegExp(r'\*([^*]+)\*'), r'$1') // Italic
+        .replaceAll(RegExp(r'`([^`]+)`'), r'$1') // Inline code
         .replaceAll(RegExp(r'#{1,6}\s+'), '') // Headers
-        .replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'\1') // Links
+        .replaceAll(RegExp(r'\[([^\]]+)\]\([^)]+\)'), r'$1') // Links
         .replaceAll(RegExp(r'>\s+'), '') // Blockquotes
         .replaceAll(RegExp(r'[-*+]\s+'), '') // List markers
         .replaceAll(RegExp(r'\d+\.\s+'), '') // Numbered list markers
@@ -308,12 +314,17 @@ class _ChatPageState extends State<ChatPage> {
   double _speechRate = 0.5;
   PreferredBackend _backend = PreferredBackend.cpu;
 
-  late CameraController _camera;
+  CameraController? _camera;
   bool _cameraReady = false;
   final _promptBarKey = GlobalKey<_PromptBarState>();
 
   bool _initialising = true;
   bool _redirectedOnError = false;
+
+  // IP Camera settings
+  CameraSource _cameraSource = CameraSource.phone;
+  String _ipCameraUrl = 'http://192.168.4.1';
+  InAppWebViewController? _ipCameraWebView;
 
   @override
   void initState() {
@@ -322,6 +333,11 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _bootstrap() async {
+    // Load preferences
+    final prefs = await SharedPreferences.getInstance();
+    _cameraSource = CameraSource.values[prefs.getInt('camera_source') ?? 0];
+    _ipCameraUrl = prefs.getString('ip_camera_url') ?? 'http://192.168.4.1';
+
     _tts = FlutterTts();
     await _tts.setSpeechRate(_speechRate);
     _streamingTts = StreamingTtsService(_tts);
@@ -364,25 +380,35 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
 
-    // Initialize camera
-    final cams = await availableCameras();
-    _camera = CameraController(
-      cams.firstWhere((c) => c.lensDirection == CameraLensDirection.back),
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
-    await _camera.initialize();
+    // Initialize camera based on source
+    await _initializeCamera();
 
     if (!mounted) return;
     setState(() {
-      _cameraReady = true;
       _initialising = false;
     });
   }
 
+  Future<void> _initializeCamera() async {
+    if (_cameraSource == CameraSource.phone) {
+      // Initialize phone camera
+      final cams = await availableCameras();
+      _camera = CameraController(
+        cams.firstWhere((c) => c.lensDirection == CameraLensDirection.back),
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      await _camera!.initialize();
+      _cameraReady = true;
+    } else {
+      // IP camera will be initialized through InAppWebView
+      _cameraReady = true;
+    }
+  }
+
   @override
   void dispose() {
-    _camera.dispose();
+    _camera?.dispose();
     _streamingTts.stop();
     _tts.stop();
     super.dispose();
@@ -403,7 +429,14 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _captureAndSend(String prompt) async {
     if (!_cameraReady) return;
     try {
-      final file = await _safeTakePicture();
+      File? file;
+
+      if (_cameraSource == CameraSource.phone) {
+        file = await _safeTakePicture();
+      } else {
+        file = await _captureIpCameraImage();
+      }
+
       if (file == null) {
         setState(
           () => _msgs.add(_Msg('Camera busy, try again…', isUser: false)),
@@ -485,17 +518,34 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<File?> _safeTakePicture() async {
-    if (!_camera.value.isInitialized) {
+    if (_camera == null || !_camera!.value.isInitialized) {
       try {
-        await _camera.initialize();
+        await _camera!.initialize();
         setState(() => _cameraReady = true);
       } catch (_) {
         return null;
       }
     }
-    if (_camera.value.isTakingPicture) return null;
-    final xFile = await _camera.takePicture();
+    if (_camera!.value.isTakingPicture) return null;
+    final xFile = await _camera!.takePicture();
     return File(xFile.path);
+  }
+
+  Future<File?> _captureIpCameraImage() async {
+    try {
+      if (_ipCameraWebView != null) {
+        final screenshot = await _ipCameraWebView!.takeScreenshot();
+        if (screenshot != null) {
+          final tempDir = await getTemporaryDirectory();
+          final tempFile = File('${tempDir.path}/ip_camera_capture.jpg');
+          await tempFile.writeAsBytes(screenshot);
+          return tempFile;
+        }
+      }
+    } catch (e) {
+      print('Error capturing IP camera image: $e');
+    }
+    return null;
   }
 
   @override
@@ -516,7 +566,17 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          Expanded(flex: 3, child: _CameraPreviewBox(camera: _camera)),
+          Expanded(
+            flex: 3,
+            child: _cameraSource == CameraSource.phone && _camera != null
+                ? _CameraPreviewBox(camera: _camera!)
+                : _IpCameraPreviewBox(
+                    ipCameraUrl: _ipCameraUrl,
+                    onWebViewCreated: (controller) {
+                      _ipCameraWebView = controller;
+                    },
+                  ),
+          ),
           Expanded(
             flex: 4,
             child: ListView.builder(
@@ -542,46 +602,78 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _showSettingsDialog() async {
     final ctxCtl = TextEditingController(text: _systemCtx);
+    final ipCtl = TextEditingController(text: _ipCameraUrl);
     double tmpRate = _speechRate;
     PreferredBackend tmpBackend = _backend;
+    CameraSource tmpCameraSource = _cameraSource;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Settings'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: ctxCtl,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'System context'),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<PreferredBackend>(
-                value: tmpBackend,
-                items: PreferredBackend.values
-                    .map(
-                      (b) => DropdownMenuItem(
-                        value: b,
-                        child: Text(b.name.toUpperCase()),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => tmpBackend = v!,
-                decoration: const InputDecoration(labelText: 'Backend'),
-              ),
-              const SizedBox(height: 16),
-              Text('Speech rate: ${tmpRate.toStringAsFixed(2)}'),
-              Slider(
-                min: 0.5,
-                max: 2,
-                divisions: 15,
-                value: tmpRate,
-                onChanged: (v) => setDialogState(() => tmpRate = v),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ctxCtl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'System context',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<CameraSource>(
+                  value: tmpCameraSource,
+                  items: const [
+                    DropdownMenuItem(
+                      value: CameraSource.phone,
+                      child: Text('Phone Camera'),
+                    ),
+                    DropdownMenuItem(
+                      value: CameraSource.ip,
+                      child: Text('IP Camera'),
+                    ),
+                  ],
+                  onChanged: (v) => setDialogState(() => tmpCameraSource = v!),
+                  decoration: const InputDecoration(labelText: 'Camera Source'),
+                ),
+                if (tmpCameraSource == CameraSource.ip) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: ipCtl,
+                    decoration: const InputDecoration(
+                      labelText: 'IP Camera URL',
+                      hintText: 'http://192.168.4.1',
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                DropdownButtonFormField<PreferredBackend>(
+                  value: tmpBackend,
+                  items: PreferredBackend.values
+                      .map(
+                        (b) => DropdownMenuItem(
+                          value: b,
+                          child: Text(b.name.toUpperCase()),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => tmpBackend = v!,
+                  decoration: const InputDecoration(labelText: 'Backend'),
+                ),
+                const SizedBox(height: 16),
+                Text('Speech rate: ${tmpRate.toStringAsFixed(2)}'),
+                Slider(
+                  min: 0.5,
+                  max: 2,
+                  divisions: 15,
+                  value: tmpRate,
+                  onChanged: (v) => setDialogState(() => tmpRate = v),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -597,9 +689,34 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
     if (result == true) {
+      final prefs = await SharedPreferences.getInstance();
+
       setState(() {
         _systemCtx = ctxCtl.text.trim();
         _speechRate = tmpRate;
+
+        // Handle camera source change
+        if (_cameraSource != tmpCameraSource || _ipCameraUrl != ipCtl.text) {
+          _cameraSource = tmpCameraSource;
+          _ipCameraUrl = ipCtl.text;
+
+          // Save preferences
+          prefs.setInt('camera_source', _cameraSource.index);
+          prefs.setString('ip_camera_url', _ipCameraUrl);
+
+          // Re-initialize camera
+          _cameraReady = false;
+          if (_cameraSource == CameraSource.phone) {
+            _ipCameraWebView = null;
+          } else {
+            _camera?.dispose();
+            _camera = null;
+          }
+          _initializeCamera().then((_) {
+            if (mounted) setState(() {});
+          });
+        }
+
         if (_backend != tmpBackend) {
           _backend = tmpBackend;
           _msgs.clear();
@@ -636,6 +753,72 @@ class _CameraPreviewBox extends StatelessWidget {
           child: SizedBox(width: w, height: h, child: CameraPreview(camera)),
         );
       },
+    );
+  }
+}
+
+class _IpCameraPreviewBox extends StatelessWidget {
+  final String ipCameraUrl;
+  final Function(InAppWebViewController)? onWebViewCreated;
+
+  const _IpCameraPreviewBox({required this.ipCameraUrl, this.onWebViewCreated});
+
+  String get _htmlContent =>
+      '''
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+          }
+          img {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+          }
+        </style>
+      </head>
+      <body>
+        <img src="$ipCameraUrl" onerror="this.style.display='none'; document.getElementById('error').style.display='block';" />
+        <div id="error" style="display:none; color:white; text-align:center;">
+          <p>Connecting to IP Camera...</p>
+          <p style="font-size:12px;">$ipCameraUrl</p>
+        </div>
+      </body>
+    </html>
+  ''';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      child: InAppWebView(
+        initialData: InAppWebViewInitialData(
+          data: _htmlContent,
+          baseUrl: WebUri(ipCameraUrl),
+          encoding: 'utf-8',
+          mimeType: 'text/html',
+        ),
+        onWebViewCreated: onWebViewCreated,
+        initialSettings: InAppWebViewSettings(
+          javaScriptEnabled: true,
+          allowsInlineMediaPlayback: true,
+          mediaPlaybackRequiresUserGesture: false,
+          userAgent: "Mozilla/5.0",
+          mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+        ),
+      ),
     );
   }
 }
