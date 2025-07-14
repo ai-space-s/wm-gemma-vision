@@ -9,9 +9,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
+import 'package:gemma_chat/gemma_vision_chat.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'camera.dart';
 
 @pragma('vm:entry-point')
 void downloadCallback(String id, int status, int progress) {
