@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'download_page.dart';
 
 /// Must be top‐level (or static) and visible to the background isolate.
@@ -13,6 +14,7 @@ void downloadCallback(String id, int status, int progress) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await WakelockPlus.enable();
   await FlutterDownloader.initialize(debug: false, ignoreSsl: true);
   FlutterDownloader.registerCallback(downloadCallback);
   runApp(const MyApp());
