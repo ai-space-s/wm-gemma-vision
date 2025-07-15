@@ -61,7 +61,7 @@ class ChatBubble extends StatelessWidget {
   }
 }
 
-/// Widget for displaying performance statistics
+/// Widget for displaying performance statistics (now wrapping)
 class StatsWidget extends StatelessWidget {
   final MessageStats stats;
 
@@ -69,49 +69,50 @@ class StatsWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // assemble each piece separately
+    final parts = <String>[];
+    if (stats.timeToFirstToken != null) {
+      parts.add('TTFT: ${stats.timeToFirstToken!.toStringAsFixed(2)}s');
+    }
+    if (stats.totalLatency != null) {
+      parts.add('Total: ${stats.totalLatency!.toStringAsFixed(2)}s');
+    }
+    if (stats.prefillSpeed != null) {
+      parts.add('Prefill: ${stats.prefillSpeed!.toStringAsFixed(1)} t/s');
+    }
+    if (stats.decodeSpeed != null) {
+      parts.add('Decode: ${stats.decodeSpeed!.toStringAsFixed(1)} t/s');
+    }
+    if (stats.tokenCount != null) {
+      parts.add('${stats.tokenCount} tokens');
+    }
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.05),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        runSpacing: 2,
         children: [
           const Icon(Icons.speed, size: 12, color: Colors.grey),
-          const SizedBox(width: 4),
-          Text(
-            _buildStatsText(),
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
+          // interleave bullets and parts
+          for (var i = 0; i < parts.length; i++) ...[
+            Text(
+              parts[i],
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+            if (i < parts.length - 1)
+              const Text(
+                '•',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+          ],
         ],
       ),
     );
-  }
-
-  String _buildStatsText() {
-    final parts = <String>[];
-
-    if (stats.timeToFirstToken != null) {
-      parts.add('TTFT: ${stats.timeToFirstToken!.toStringAsFixed(2)}s');
-    }
-
-    if (stats.totalLatency != null) {
-      parts.add('Total: ${stats.totalLatency!.toStringAsFixed(2)}s');
-    }
-
-    if (stats.prefillSpeed != null) {
-      parts.add('Prefill: ${stats.prefillSpeed!.toStringAsFixed(1)} t/s');
-    }
-
-    if (stats.decodeSpeed != null) {
-      parts.add('Decode: ${stats.decodeSpeed!.toStringAsFixed(1)} t/s');
-    }
-
-    if (stats.tokenCount != null) {
-      parts.add('${stats.tokenCount} tokens');
-    }
-
-    return parts.join(' • ');
   }
 }

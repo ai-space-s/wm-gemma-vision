@@ -1,5 +1,3 @@
-// ignore_for_file: unrelated_type_equality_checks
-
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -22,6 +20,7 @@ import 'widgets/chat_bubble.dart';
 import 'widgets/prompt_bar.dart';
 import 'widgets/settings_dialog.dart';
 import 'download_page.dart';
+import 'services/chat_helpers.dart';
 
 /// Intent used by global Shortcuts / Actions so controller keys win even when
 /// a `TextField` (PromptBar) owns primary focus.
@@ -41,13 +40,14 @@ class _ChatPageState extends State<ChatPage> {
   final _service = GemmaService.instance;
   final _msgs = <ChatMessage>[];
 
-  bool _resetting = false;
   bool _showMessages = false;
   bool _settingsVisible = false;
 
   late FlutterTts _tts;
   late StreamingTtsService _streamingTts;
-  String _systemCtx = 'Context: user is blind; keep answers concise.';
+  late ChatHelpers _chatHelpers;
+
+  String _systemCtx = 'Aswer immediately! Keep answers short.';
   double _speechRate = 0.5;
 
   PreferredBackend _backend = PreferredBackend.cpu;
@@ -66,8 +66,6 @@ class _ChatPageState extends State<ChatPage> {
   final _promptBarKey = GlobalKey<PromptBarState>();
   bool _initialising = true;
   bool _redirectedOnError = false;
-  bool _isGenerating = false;
-  bool _isSpeaking = false;
 
   /* speech-to-text */
   final SpeechToText _speech = SpeechToText();
@@ -101,6 +99,21 @@ class _ChatPageState extends State<ChatPage> {
     _tts = FlutterTts();
     await _tts.setSpeechRate(_speechRate);
     _streamingTts = StreamingTtsService(_tts);
+
+    // Initialize chat helpers
+    _chatHelpers = ChatHelpers(
+      service: _service,
+      streamingTts: _streamingTts,
+      onStateChanged: () => setState(() {}),
+      showSnackBar: (message) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+      },
+      systemContext: _systemCtx,
+    );
 
     try {
       await _service.init(_backend);
@@ -193,8 +206,6 @@ class _ChatPageState extends State<ChatPage> {
   /* ---------------------------------------------------------------- dispose */
   @override
   void dispose() {
-    // DO NOT dispose camera here to avoid the crash
-    // The camera will be disposed when the app terminates
     _streamingTts.stop();
     _tts.stop();
     _speech.stop();
@@ -233,6 +244,9 @@ class _ChatPageState extends State<ChatPage> {
         setState(() {
           _systemCtx = newCtx;
           _speechRate = newRate;
+
+          // Update chat helpers with new context
+          _chatHelpers.updateSystemContext(_systemCtx);
 
           if (_cameraSource != newSource || _ipCameraUrl != newUrl) {
             _cameraSource = newSource;
@@ -279,10 +293,45 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /* -------------------------------------- quick actions (camera + prompt) */
-  Future<void> _quickAction1() async => _captureAndSend('Describe the room');
-  Future<void> _quickAction2() async => _captureAndSend('Tell me what you see');
-  Future<void> _quickAction3() async => _captureAndSend('Find an exit');
-  Future<void> _quickAction4() async => _captureAndSend('Read text');
+  Future<void> _quickAction1() async => _chatHelpers.quickAction1(
+    _msgs,
+    _cameraSource,
+    _cameraInitialized,
+    _cameraError,
+    _camera,
+    _ipCameraWebView,
+    _ipCameraUrl,
+  );
+
+  Future<void> _quickAction2() async => _chatHelpers.quickAction2(
+    _msgs,
+    _cameraSource,
+    _cameraInitialized,
+    _cameraError,
+    _camera,
+    _ipCameraWebView,
+    _ipCameraUrl,
+  );
+
+  Future<void> _quickAction3() async => _chatHelpers.quickAction3(
+    _msgs,
+    _cameraSource,
+    _cameraInitialized,
+    _cameraError,
+    _camera,
+    _ipCameraWebView,
+    _ipCameraUrl,
+  );
+
+  Future<void> _quickAction4() async => _chatHelpers.quickAction4(
+    _msgs,
+    _cameraSource,
+    _cameraInitialized,
+    _cameraError,
+    _camera,
+    _ipCameraWebView,
+    _ipCameraUrl,
+  );
 
   /* ------------------------- global logical key handler (Shortcuts layer) */
   void _handleLogicalKey(LogicalKeyboardKey key) {
@@ -385,177 +434,26 @@ class _ChatPageState extends State<ChatPage> {
     ),
   };
 
-  /* ------------------------------------------------ chat helpers (send) */
+  /* ------------------------------------------------ chat helpers (wrappers) */
   Future<void> _newChat() async {
-    if (_resetting) return;
-    _streamingTts.reset();
-    setState(() {
-      _resetting = true;
-      _msgs.clear();
-      _promptBarKey.currentState?.clear();
-    });
-    await _service.resetChatSession();
-    if (mounted) {
-      setState(() => _resetting = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('New chat started')));
-    }
+    await _chatHelpers.newChat(_msgs, _promptBarKey);
   }
 
   Future<void> _captureAndSend(String prompt) async {
-    if (_cameraSource == CameraSource.phone &&
-        (!_cameraInitialized || _cameraError)) {
-      setState(() {
-        _msgs.add(ChatMessage('Camera not available', isUser: false));
-      });
-      return;
-    }
-
-    try {
-      setState(() {
-        _isGenerating = true;
-        _isSpeaking = false;
-      });
-
-      File? img;
-      if (_cameraSource == CameraSource.phone) {
-        img = await _safeTakePicture();
-      } else {
-        img = await _captureIpCameraImage();
-      }
-
-      if (img == null) {
-        setState(() {
-          _msgs.add(ChatMessage('Camera busy; try again…', isUser: false));
-          _isGenerating = false;
-        });
-        return;
-      }
-
-      setState(() => _msgs.add(ChatMessage(prompt, isUser: true)));
-
-      final aiMsg = ChatMessage('', isUser: false, isStreaming: true);
-      setState(() => _msgs.add(aiMsg));
-
-      String prev = '';
-      bool first = false;
-
-      await _service.sendWithStreaming(
-        text: '$_systemCtx\nUser: $prompt',
-        image: img,
-        onToken: (tok) {
-          if (!mounted) return;
-          if (!first) {
-            first = true;
-            setState(() => _isSpeaking = true);
-          }
-          _streamingTts.addText(tok, prev);
-          prev = tok;
-          setState(() => aiMsg.text = tok);
-        },
-        onComplete: (stats) {
-          if (!mounted) return;
-          setState(() {
-            aiMsg
-              ..isStreaming = false
-              ..stats = stats;
-            _isGenerating = false;
-            _isSpeaking = false;
-          });
-        },
-      );
-    } catch (e) {
-      setState(() {
-        _msgs.add(ChatMessage('Error: $e', isUser: false));
-        _isGenerating = false;
-        _isSpeaking = false;
-      });
-    }
+    await _chatHelpers.captureAndSend(
+      prompt,
+      _msgs,
+      _cameraSource,
+      _cameraInitialized,
+      _cameraError,
+      _camera,
+      _ipCameraWebView,
+      _ipCameraUrl,
+    );
   }
 
   Future<void> _sendTextOnly(String prompt) async {
-    try {
-      setState(() {
-        _isGenerating = true;
-        _isSpeaking = false;
-      });
-      setState(() => _msgs.add(ChatMessage(prompt, isUser: true)));
-
-      final aiMsg = ChatMessage('', isUser: false, isStreaming: true);
-      setState(() => _msgs.add(aiMsg));
-
-      String prev = '';
-      bool first = false;
-
-      await _service.sendWithStreaming(
-        text: '$_systemCtx\nUser: $prompt',
-        onToken: (tok) {
-          if (!mounted) return;
-          if (!first) {
-            first = true;
-            setState(() => _isSpeaking = true);
-          }
-          _streamingTts.addText(tok, prev);
-          prev = tok;
-          setState(() => aiMsg.text = tok);
-        },
-        onComplete: (stats) {
-          if (!mounted) return;
-          setState(() {
-            aiMsg
-              ..isStreaming = false
-              ..stats = stats;
-            _isGenerating = false;
-            _isSpeaking = false;
-          });
-        },
-      );
-    } catch (e) {
-      setState(() {
-        _msgs.add(ChatMessage('Error: $e', isUser: false));
-        _isGenerating = false;
-        _isSpeaking = false;
-      });
-    }
-  }
-
-  /* --------------------------------------------- camera helper functions */
-  Future<File?> _safeTakePicture() async {
-    if (_camera == null || !_camera!.value.isInitialized) {
-      return null;
-    }
-
-    // Check if camera is already taking a picture
-    if (_camera!.value.isTakingPicture) {
-      debugPrint('Camera is already taking a picture');
-      return null;
-    }
-
-    try {
-      final x = await _camera!.takePicture();
-      return File(x.path);
-    } catch (e) {
-      debugPrint('Camera picture error: $e');
-      return null;
-    }
-  }
-
-  Future<File?> _captureIpCameraImage() async {
-    try {
-      if (_ipCameraWebView != null) {
-        final bytes = await _ipCameraWebView!.takeScreenshot();
-        if (bytes != null) {
-          final tmp = await getTemporaryDirectory();
-          final f = File('${tmp.path}/ip_cam.jpg');
-          await f.writeAsBytes(bytes);
-          return f;
-        }
-      }
-    } catch (e) {
-      debugPrint('IP cam screenshot error: $e');
-    }
-    return null;
+    await _chatHelpers.sendTextOnly(prompt, _msgs);
   }
 
   Widget _buildCameraPreview() {
@@ -610,288 +508,133 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
 
-    return WillPopScope(
-      onWillPop: () async {
-        // Handle back button
-        return true; // Allow normal back navigation
-      },
-      child: Shortcuts(
-        shortcuts: _shortcutMap,
-        child: Actions(
-          actions: {
-            _GameIntent: CallbackAction<_GameIntent>(
-              onInvoke: (intent) => _handleLogicalKey(intent.key),
+    return Shortcuts(
+      shortcuts: _shortcutMap,
+      child: Actions(
+        actions: {
+          _GameIntent: CallbackAction<_GameIntent>(
+            onInvoke: (intent) => _handleLogicalKey(intent.key),
+          ),
+        },
+        child: Focus(
+          focusNode: _rootFocus,
+          autofocus: true,
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('Gemma Vision Chat'),
+              actions: [
+                /* ⭐ star toggle */
+                Semantics(
+                  label: _showMessages ? 'Hide messages' : 'Show messages',
+                  button: true,
+                  child: IconButton(
+                    icon: Icon(_showMessages ? Icons.star : Icons.star_border),
+                    onPressed: _toggleMessages,
+                    tooltip: _showMessages ? 'Hide messages' : 'Show messages',
+                  ),
+                ),
+                /* new chat */
+                Semantics(
+                  label: 'New chat',
+                  button: true,
+                  child: IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _chatHelpers.resetting ? null : _newChat,
+                    tooltip: 'New chat',
+                  ),
+                ),
+                /* ♥ heart settings */
+                Semantics(
+                  label: _settingsVisible ? 'Hide settings' : 'Show settings',
+                  button: true,
+                  child: IconButton(
+                    icon: const Icon(Icons.favorite),
+                    onPressed: _toggleSettings,
+                    tooltip: _settingsVisible
+                        ? 'Hide settings'
+                        : 'Show settings',
+                  ),
+                ),
+              ],
             ),
-          },
-          child: Focus(
-            focusNode: _rootFocus,
-            autofocus: true,
-            child: Scaffold(
-              appBar: AppBar(
-                title: const Text('Gemma Vision Chat'),
-                actions: [
-                  /* ⭐ star toggle */
-                  Semantics(
-                    label: _showMessages ? 'Hide messages' : 'Show messages',
-                    button: true,
-                    child: IconButton(
-                      icon: Icon(
-                        _showMessages ? Icons.star : Icons.star_border,
-                      ),
-                      onPressed: _toggleMessages,
-                      tooltip: _showMessages
-                          ? 'Hide messages'
-                          : 'Show messages',
-                    ),
-                  ),
-                  /* new chat */
-                  Semantics(
-                    label: 'New chat',
-                    button: true,
-                    child: IconButton(
-                      icon: const Icon(Icons.refresh),
-                      onPressed: _resetting ? null : _newChat,
-                      tooltip: 'New chat',
-                    ),
-                  ),
-                  /* ♥ heart settings */
-                  Semantics(
-                    label: _settingsVisible ? 'Hide settings' : 'Show settings',
-                    button: true,
-                    child: IconButton(
-                      icon: const Icon(Icons.favorite),
-                      onPressed: _toggleSettings,
-                      tooltip: _settingsVisible
-                          ? 'Hide settings'
-                          : 'Show settings',
-                    ),
-                  ),
-                ],
-              ),
-              body: Column(
-                children: [
-                  /* status */
-                  if (_isGenerating || _isSpeaking)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(8),
-                      color: Colors.blue.withOpacity(0.1),
-                      child: Semantics(
-                        liveRegion: true,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _isGenerating
-                                  ? (_isSpeaking
-                                        ? 'Generating and speaking…'
-                                        : 'Generating response…')
-                                  : 'Speaking…',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  /* camera */
-                  Expanded(
-                    flex: _showMessages ? 3 : 5,
-                    child: Semantics(
-                      label: 'Camera view',
-                      child: _buildCameraPreview(),
-                    ),
-                  ),
-
-                  /* messages */
-                  if (_showMessages)
-                    Expanded(
-                      flex: 4,
-                      child: Semantics(
-                        label: 'Chat messages',
-                        child: ListView.builder(
-                          padding: const EdgeInsets.all(8),
-                          itemCount: _msgs.length,
-                          itemBuilder: (_, i) =>
-                              Focus(child: ChatBubble(msg: _msgs[i])),
-                        ),
-                      ),
-                    ),
-
-                  const Divider(height: 1),
-
-                  /* legend + prompt */
+            body: Column(
+              children: [
+                /* status */
+                if (_chatHelpers.isGenerating || _chatHelpers.isSpeaking)
                   Container(
-                    color: Theme.of(context).primaryColor.withOpacity(0.1),
+                    width: double.infinity,
                     padding: const EdgeInsets.all(8),
-                    child: Column(
-                      children: [
-                        Semantics(
-                          label: 'Controller button mappings',
-                          child: Column(
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _CtrlBtn(
-                                    'A',
-                                    'Describe room',
-                                    Colors.green,
-                                    semanticLabel: 'A button: Describe room',
-                                  ),
-                                  _CtrlBtn(
-                                    'B',
-                                    'What you see',
-                                    Colors.red,
-                                    semanticLabel:
-                                        'B button: Tell me what you see',
-                                  ),
-                                  _CtrlBtn(
-                                    'X',
-                                    'Find exit',
-                                    Colors.blue,
-                                    semanticLabel: 'X button: Find exit',
-                                  ),
-                                  _CtrlBtn(
-                                    'Y',
-                                    'Read text',
-                                    Colors.yellow,
-                                    semanticLabel: 'Y button: Read text',
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _CtrlBtn(
-                                    '+',
-                                    'New chat',
-                                    Colors.grey,
-                                    semanticLabel: 'Plus button: New chat',
-                                  ),
-                                  _CtrlBtn(
-                                    '★',
-                                    'Show messages',
-                                    Colors.purple,
-                                    semanticLabel:
-                                        'Star button: Show or hide messages',
-                                  ),
-                                  _CtrlBtn(
-                                    '♥',
-                                    'Settings',
-                                    Colors.pink,
-                                    semanticLabel:
-                                        'Heart button: Toggle settings',
-                                  ),
-                                  _CtrlBtn(
-                                    'R2',
-                                    _listening
-                                        ? 'Stop dictation'
-                                        : 'Start dictation',
-                                    _listening ? Colors.orange : Colors.grey,
-                                    semanticLabel: _listening
-                                        ? 'Right trigger: Stop dictation'
-                                        : 'Right trigger: Start dictation',
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Semantics(
-                                label:
-                                    'Left trigger: Press to activate or enter',
-                                child: Text(
-                                  'L2: Press to activate',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ),
-                            ],
+                    color: Colors.blue.withOpacity(0.1),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        PromptBar(
-                          key: _promptBarKey,
-                          onPromptWithPhoto: _captureAndSend,
-                          onPromptTextOnly: _sendTextOnly,
-                          disabled: _resetting || _isGenerating,
-                          speechEnabled: _speechEnabled,
-                          listening: _listening,
-                          onToggleListening: _toggleDictation,
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Text(
+                            _chatHelpers.isGenerating
+                                ? (_chatHelpers.isSpeaking
+                                      ? 'Generating and speaking…'
+                                      : 'Generating response…')
+                                : 'Speaking…',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
+
+                /* camera */
+                Expanded(
+                  flex: _showMessages ? 3 : 5,
+                  child: Semantics(
+                    label: 'Camera view',
+                    child: _buildCameraPreview(),
+                  ),
+                ),
+
+                /* messages */
+                if (_showMessages)
+                  Expanded(
+                    flex: 4,
+                    child: Semantics(
+                      label: 'Chat messages',
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(8),
+                        itemCount: _msgs.length,
+                        itemBuilder: (_, i) =>
+                            Focus(child: ChatBubble(msg: _msgs[i])),
+                      ),
+                    ),
+                  ),
+
+                const Divider(height: 1),
+
+                /* legend + prompt */
+                Container(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  padding: const EdgeInsets.all(8),
+                  child: PromptBar(
+                    key: _promptBarKey,
+                    onPromptWithPhoto: _captureAndSend,
+                    onPromptTextOnly: _sendTextOnly,
+                    disabled:
+                        _chatHelpers.resetting || _chatHelpers.isGenerating,
+                    speechEnabled: _speechEnabled,
+                    listening: _listening,
+                    onToggleListening: _toggleDictation,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
-}
-
-/* ------------------------------------------------ legend tile */
-class _CtrlBtn extends StatelessWidget {
-  const _CtrlBtn(
-    this.btn,
-    this.label,
-    this.color, {
-    super.key,
-    this.semanticLabel,
-  });
-  final String btn, label;
-  final Color color;
-  final String? semanticLabel;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Semantics(
-      label: semanticLabel ?? '$btn button: $label',
-      button: true,
-      excludeSemantics: true,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: color.withOpacity(0.5)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              btn,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: color.withOpacity(0.8),
-              ),
-            ),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 8),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
 }
