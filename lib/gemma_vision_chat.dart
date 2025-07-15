@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
@@ -20,8 +21,7 @@ import 'widgets/settings_dialog.dart';
 import 'download_page.dart';
 import 'services/chat_helpers.dart';
 
-/// Intent used by global Shortcuts / Actions so controller keys win even when
-/// a `TextField` (PromptBar) owns primary focus.
+/// Intent so controller keys win even when a TextField has focus.
 class _GameIntent extends Intent {
   const _GameIntent(this.key);
   final LogicalKeyboardKey key;
@@ -47,7 +47,7 @@ class _ChatPageState extends State<ChatPage> {
   late StreamingTtsService _streamingTts;
   late ChatHelpers _chatHelpers;
 
-  String _systemCtx = 'Aswer immediately! Keep answers short.';
+  String _systemCtx = 'Answer immediately! Keep answers short.';
   double _speechRate = 0.5;
 
   PreferredBackend _backend = PreferredBackend.cpu;
@@ -57,12 +57,13 @@ class _ChatPageState extends State<ChatPage> {
   bool _initialising = true;
   bool _redirectedOnError = false;
 
-  /* speech-to-text */
+  /* speech‑to‑text */
   final SpeechToText _speech = SpeechToText();
   bool _speechEnabled = false;
   bool _listening = false;
+  String _dictationText = '';
 
-  /* keyboard focus root */
+  /* focus */
   final FocusNode _rootFocus = FocusNode();
 
   /* -------------------------------------------------------------- lifecycle */
@@ -75,7 +76,12 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _initSpeech() async {
     _speechEnabled = await _speech.initialize(
-      onStatus: (_) {},
+      onStatus: (status) {
+        // Restart if recognizer auto‑stops while key still held.
+        if (_listening && status == 'notListening') {
+          _listenAgain();
+        }
+      },
       onError: (_) {},
     );
     if (mounted) setState(() {});
@@ -86,24 +92,16 @@ class _ChatPageState extends State<ChatPage> {
     await _tts.setSpeechRate(_speechRate);
     _streamingTts = StreamingTtsService(_tts);
 
-    // Initialize camera service
     await _cameraService.initialize();
+    _cameraService.addListener(() => mounted ? setState(() {}) : {});
 
-    // Listen to camera service changes
-    _cameraService.addListener(_onCameraServiceChanged);
-
-    // Initialize chat helpers
     _chatHelpers = ChatHelpers(
       service: _service,
       streamingTts: _streamingTts,
       onStateChanged: () => setState(() {}),
-      showSnackBar: (message) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(message)));
-        }
-      },
+      showSnackBar: (msg) => ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(msg))),
       systemContext: _systemCtx,
     );
 
@@ -119,17 +117,11 @@ class _ChatPageState extends State<ChatPage> {
     _rootFocus.requestFocus();
   }
 
-  void _onCameraServiceChanged() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  /* -------------------------------------------------- error on first launch */
+  /* -------------------------------------------------- first‑launch errors */
   Future<void> _handleInitError() async {
     final tasks = await FlutterDownloader.loadTasks() ?? [];
     for (final t in tasks) {
-      if (t.filename!.endsWith('.task') &&
+      if (t.filename?.endsWith('.task') == true &&
           t.status != DownloadTaskStatus.complete) {
         await FlutterDownloader.remove(
           taskId: t.taskId,
@@ -166,161 +158,103 @@ class _ChatPageState extends State<ChatPage> {
     _speech.stop();
     _speech.cancel();
     _rootFocus.dispose();
-    _cameraService.removeListener(_onCameraServiceChanged);
+    _cameraService.dispose();
     super.dispose();
   }
 
-  /* ------------------------------------------------------- helper switches */
-  void _toggleMessages() => setState(() => _showMessages = !_showMessages);
-  void _toggleCamera() => setState(() => _showCamera = !_showCamera);
+  /* ------------------------------------------------ helper (click sound) */
+  void _click() => SystemSound.play(SystemSoundType.click);
 
-  Future<void> _toggleSettings() async {
-    if (_settingsVisible) {
-      // If settings are visible, close the dialog
-      Navigator.of(context, rootNavigator: true).pop();
-      setState(() => _settingsVisible = false);
-      return;
+  /* ------------------------------------------------ dictation helpers */
+  Future<void> _startDictation() async {
+    if (!_speechEnabled || _chatHelpers.isGenerating) return;
+
+    if (!_listening) {
+      _dictationText = ''; // new session
+      _listening = true;
+      setState(() {});
     }
 
-    setState(() => _settingsVisible = true);
-
-    await showSettingsDialog(
-      context: context,
-      systemCtx: _systemCtx,
-      speechRate: _speechRate,
-      backend: _backend,
-      cameraSource: _cameraService.cameraSource,
-      ipCameraUrl: _cameraService.ipCameraUrl,
-      onDismiss: () {
-        if (mounted) {
-          setState(() => _settingsVisible = false);
-        }
-      },
-      onSave: (newCtx, newRate, newBackend, newSource, newUrl) async {
-        setState(() {
-          _systemCtx = newCtx;
-          _speechRate = newRate;
-
-          // Update chat helpers with new context
-          _chatHelpers.updateSystemContext(_systemCtx);
-
-          if (_backend != newBackend) {
-            _backend = newBackend;
-            _msgs.clear();
-            _initialising = true;
-            _redirectedOnError = false;
-            _bootstrap();
-          }
-        });
-
-        // Update camera settings through service
-        await _cameraService.updateCameraSettings(
-          newSource: newSource,
-          newUrl: newUrl,
-        );
-
-        await _tts.setSpeechRate(_speechRate);
-      },
-    );
+    _click();
+    _listenAgain();
   }
 
-  Future<void> _toggleDictation() async {
-    if (!_speechEnabled) return;
-    if (_listening) {
-      _listening = false;
-      await _speech.stop();
-      if (mounted) setState(() {});
-      return;
+  Future<void> _stopDictation() async {
+    if (!_listening) return;
+    _click();
+    _listening = false;
+    await _speech.stop();
+    if (_dictationText.trim().isNotEmpty) {
+      await _tts.speak(_dictationText.trim());
     }
+    setState(() {});
+  }
 
-    await _speech.listen(
+  void _listenAgain() {
+    _speech.listen(
       onResult: (val) {
         if (!_listening) return;
-        _promptBarKey.currentState?.updateText(val.recognizedWords);
+
+        final full = (_dictationText + ' ' + val.recognizedWords).trim();
+        _promptBarKey.currentState?.updateText(full);
+
+        if (val.finalResult) _dictationText = full;
       },
+
+      listenFor: const Duration(minutes: 5),
+      pauseFor: const Duration(seconds: 60),
+      partialResults: true,
+      cancelOnError: false,
+      listenMode: ListenMode.dictation,
     );
-    setState(() => _listening = true);
   }
 
-  /* -------------------------------------- quick actions (camera + prompt) */
-  Future<void> _quickAction1() async => _chatHelpers.quickAction1(
-    _msgs,
-    _cameraService.cameraSource,
-    _cameraService.cameraInitialized,
-    _cameraService.cameraError,
-    _cameraService.camera,
-    _cameraService.ipCameraWebView,
-    _cameraService.ipCameraUrl,
-  );
+  Future<void> _toggleDictation() async =>
+      _listening ? _stopDictation() : _startDictation();
 
-  Future<void> _quickAction2() async => _chatHelpers.quickAction2(
-    _msgs,
-    _cameraService.cameraSource,
-    _cameraService.cameraInitialized,
-    _cameraService.cameraError,
-    _cameraService.camera,
-    _cameraService.ipCameraWebView,
-    _cameraService.ipCameraUrl,
-  );
+  /* -------------------------------------------------- raw key handler */
+  KeyEventResult _handleFocusKey(FocusNode _, KeyEvent e) {
+    if (e.logicalKey == LogicalKeyboardKey.f2) {
+      if (e is KeyDownEvent) {
+        _startDictation();
+        return KeyEventResult.handled;
+      } else if (e is KeyUpEvent) {
+        _stopDictation();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
 
-  Future<void> _quickAction3() async => _chatHelpers.quickAction3(
-    _msgs,
-    _cameraService.cameraSource,
-    _cameraService.cameraInitialized,
-    _cameraService.cameraError,
-    _cameraService.camera,
-    _cameraService.ipCameraWebView,
-    _cameraService.ipCameraUrl,
-  );
-
-  Future<void> _quickAction4() async => _chatHelpers.quickAction4(
-    _msgs,
-    _cameraService.cameraSource,
-    _cameraService.cameraInitialized,
-    _cameraService.cameraError,
-    _cameraService.camera,
-    _cameraService.ipCameraWebView,
-    _cameraService.ipCameraUrl,
-  );
-
-  /* ------------------------- global logical key handler (Shortcuts layer) */
-  void _handleLogicalKey(LogicalKeyboardKey key) {
+  void _onShortcut(LogicalKeyboardKey key) {
     switch (key) {
-      /* F10 (★ star) => toggle messages */
       case LogicalKeyboardKey.f10:
-        _toggleMessages();
+        setState(() => _showMessages = !_showMessages);
         break;
-
-      /* F8 (♥ heart) => toggle settings */
+      case LogicalKeyboardKey.f9:
+        _promptBarKey.currentState?.sendTextOnly();
+        break;
       case LogicalKeyboardKey.f8:
         _toggleSettings();
         break;
-
-      /* F2 (R) => dictation */
-      case LogicalKeyboardKey.f2:
-        _toggleDictation();
+      case LogicalKeyboardKey.f1:
+        _promptBarKey.currentState?.sendWithPhoto();
         break;
-
-      /* quick actions */
-      case LogicalKeyboardKey.f5: // A button
-        _quickAction1();
-        break;
-      case LogicalKeyboardKey.f7: // B button
-        _quickAction2();
-        break;
-      case LogicalKeyboardKey.f4: // X button
-        _quickAction3();
-        break;
-      case LogicalKeyboardKey.f6: // Y button
-        _quickAction4();
-        break;
-
-      /* F3 (+ button) => new chat */
       case LogicalKeyboardKey.f3:
         _newChat();
         break;
-
-      /* arrow navigation */
+      case LogicalKeyboardKey.f5:
+        _quickAction1();
+        break;
+      case LogicalKeyboardKey.f7:
+        _quickAction2();
+        break;
+      case LogicalKeyboardKey.f4:
+        _quickAction3();
+        break;
+      case LogicalKeyboardKey.f6:
+        _quickAction4();
+        break;
       case LogicalKeyboardKey.arrowUp:
       case LogicalKeyboardKey.arrowLeft:
         FocusScope.of(context).previousFocus();
@@ -329,8 +263,6 @@ class _ChatPageState extends State<ChatPage> {
       case LogicalKeyboardKey.arrowRight:
         FocusScope.of(context).nextFocus();
         break;
-
-      /* Activate (Enter / Select / L2) */
       case LogicalKeyboardKey.enter:
       case LogicalKeyboardKey.select:
         Actions.invoke(context, const ActivateIntent());
@@ -338,17 +270,20 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  /* ------------------------------ Shortcuts map (controller always wins) */
-  Map<LogicalKeySet, Intent> get _shortcutMap => {
+  Map<LogicalKeySet, Intent> get _shortcuts => {
+    LogicalKeySet(LogicalKeyboardKey.f9): const _GameIntent(
+      LogicalKeyboardKey.f9,
+    ),
     LogicalKeySet(LogicalKeyboardKey.f10): const _GameIntent(
       LogicalKeyboardKey.f10,
     ),
     LogicalKeySet(LogicalKeyboardKey.f8): const _GameIntent(
       LogicalKeyboardKey.f8,
     ),
-    LogicalKeySet(LogicalKeyboardKey.f2): const _GameIntent(
-      LogicalKeyboardKey.f2,
+    LogicalKeySet(LogicalKeyboardKey.f1): const _GameIntent(
+      LogicalKeyboardKey.f1,
     ),
+    // F2 handled via press‑and‑hold listener
     LogicalKeySet(LogicalKeyboardKey.f5): const _GameIntent(
       LogicalKeyboardKey.f5,
     ),
@@ -384,74 +319,102 @@ class _ChatPageState extends State<ChatPage> {
     ),
   };
 
-  /* ------------------------------------------------ chat helpers (wrappers) */
-  Future<void> _newChat() async {
-    await _chatHelpers.newChat(_msgs, _promptBarKey);
-  }
+  /* -------------------- chat helper wrappers */
+  Future<void> _newChat() async => _chatHelpers.newChat(_msgs, _promptBarKey);
 
-  Future<void> _captureAndSend(String prompt) async {
-    await _chatHelpers.captureAndSend(
-      prompt,
-      _msgs,
-      _cameraService.cameraSource,
-      _cameraService.cameraInitialized,
-      _cameraService.cameraError,
-      _cameraService.camera,
-      _cameraService.ipCameraWebView,
-      _cameraService.ipCameraUrl,
-    );
-  }
+  Future<void> _captureAndSend(String p) async => _chatHelpers.captureAndSend(
+    p,
+    _msgs,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
+  );
 
-  Future<void> _sendTextOnly(String prompt) async {
-    await _chatHelpers.sendTextOnly(prompt, _msgs);
-  }
+  Future<void> _sendTextOnly(String p) async =>
+      _chatHelpers.sendTextOnly(p, _msgs);
 
-  Widget _buildCameraPreview() {
+  /* ------------------------ quick actions */
+  Future<void> _quickAction1() async => _chatHelpers.quickAction1(
+    _msgs,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
+  );
+  Future<void> _quickAction2() async => _chatHelpers.quickAction2(
+    _msgs,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
+  );
+  Future<void> _quickAction3() async => _chatHelpers.quickAction3(
+    _msgs,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
+  );
+  Future<void> _quickAction4() async => _chatHelpers.quickAction4(
+    _msgs,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
+  );
+
+  /* ------------------------ camera preview */
+  Widget _cameraPreview() {
     if (_cameraService.cameraSource == CameraSource.phone) {
-      if (_cameraService.camera != null &&
-          _cameraService.cameraInitialized &&
-          !_cameraService.cameraError) {
+      if (_cameraService.cameraInitialized &&
+          !_cameraService.cameraError &&
+          _cameraService.camera != null) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: CameraPreviewBox(camera: _cameraService.camera!),
         );
-      } else {
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.black12,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _cameraService.cameraError ? Icons.error : Icons.camera_alt,
-                  size: 64,
-                  color: Colors.grey,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _cameraService.cameraError
-                      ? 'Camera Error'
-                      : 'Camera Initializing...',
-                  style: const TextStyle(fontSize: 16, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-        );
       }
-    } else {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: IpCameraPreviewBox(
-          ipCameraUrl: _cameraService.ipCameraUrl,
-          onWebViewCreated: (c) => _cameraService.setIpCameraWebView(c),
-        ),
+      return _cameraPlaceholder(
+        _cameraService.cameraError ? 'Camera Error' : 'Camera Initializing…',
       );
     }
+    // IP cam
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: IpCameraPreviewBox(
+        ipCameraUrl: _cameraService.ipCameraUrl,
+        onWebViewCreated: _cameraService.setIpCameraWebView,
+      ),
+    );
   }
+
+  Widget _cameraPlaceholder(String msg) => Container(
+    decoration: BoxDecoration(
+      color: Colors.black12,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.camera_alt, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          Text(msg, style: const TextStyle(fontSize: 16, color: Colors.grey)),
+        ],
+      ),
+    ),
+  );
 
   /* -------------------------------------------------------------- build UI */
   @override
@@ -472,27 +435,23 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     return Shortcuts(
-      shortcuts: _shortcutMap,
+      shortcuts: _shortcuts,
       child: Actions(
         actions: {
           _GameIntent: CallbackAction<_GameIntent>(
-            onInvoke: (intent) => _handleLogicalKey(intent.key),
+            onInvoke: (i) => _onShortcut(i.key),
           ),
         },
         child: Focus(
           focusNode: _rootFocus,
           autofocus: true,
+          onKeyEvent: _handleFocusKey,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text(
-                'Gemma Vision Chat',
-                style: TextStyle(fontSize: 16),
-              ),
+              title: const Text('Gemma Vision Chat'),
               backgroundColor: Colors.teal,
               foregroundColor: Colors.white,
-              elevation: 0,
               actions: [
-                /* New chat button */
                 TextButton.icon(
                   icon: const Icon(Icons.refresh, color: Colors.white),
                   label: const Text(
@@ -501,7 +460,6 @@ class _ChatPageState extends State<ChatPage> {
                   ),
                   onPressed: _chatHelpers.resetting ? null : _newChat,
                 ),
-                /* Settings button */
                 TextButton.icon(
                   icon: const Icon(Icons.settings, color: Colors.white),
                   label: const Text(
@@ -519,15 +477,7 @@ class _ChatPageState extends State<ChatPage> {
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade100,
-                      border: Border(
-                        bottom: BorderSide(
-                          color: Colors.orange.shade300,
-                          width: 2,
-                        ),
-                      ),
-                    ),
+                    color: Colors.orange.shade100,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -551,21 +501,21 @@ class _ChatPageState extends State<ChatPage> {
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
-                            color: Colors.orange,
                           ),
                         ),
                       ],
                     ),
                   ),
 
-                /* View toggle buttons */
+                /* show / hide buttons */
                 Container(
                   padding: const EdgeInsets.all(8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       ElevatedButton.icon(
-                        onPressed: _toggleCamera,
+                        onPressed: () =>
+                            setState(() => _showCamera = !_showCamera),
                         icon: Icon(
                           _showCamera ? Icons.visibility_off : Icons.visibility,
                         ),
@@ -575,15 +525,12 @@ class _ChatPageState extends State<ChatPage> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.purple,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       ElevatedButton.icon(
-                        onPressed: _toggleMessages,
+                        onPressed: () =>
+                            setState(() => _showMessages = !_showMessages),
                         icon: Icon(
                           _showMessages
                               ? Icons.chat_bubble
@@ -595,33 +542,26 @@ class _ChatPageState extends State<ChatPage> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.deepOrange,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
 
-                /* Main content area */
+                /* main content */
                 Expanded(
                   child: Container(
                     color: Colors.grey.shade100,
                     child: Column(
                       children: [
-                        /* Camera preview */
                         if (_showCamera)
                           Expanded(
                             flex: _showMessages ? 1 : 2,
-                            child: Container(
+                            child: Padding(
                               padding: const EdgeInsets.all(12),
-                              child: _buildCameraPreview(),
+                              child: _cameraPreview(),
                             ),
                           ),
-
-                        /* Messages list */
                         if (_showMessages)
                           Expanded(
                             flex: _showCamera ? 1 : 2,
@@ -647,47 +587,7 @@ class _ChatPageState extends State<ChatPage> {
                   ),
                 ),
 
-                /* Voice input button */
-                if (_speechEnabled)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed:
-                            (_chatHelpers.resetting ||
-                                _chatHelpers.isGenerating)
-                            ? null
-                            : _toggleDictation,
-                        icon: Icon(
-                          _listening ? Icons.mic_off : Icons.mic,
-                          size: 28,
-                        ),
-                        label: Text(
-                          _listening ? 'Stop Voice Input' : 'Start Voice Input',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _listening
-                              ? Colors.red
-                              : Colors.green,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                /* Prompt bar */
+                /* Prompt bar (includes mic button) */
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -712,6 +612,48 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
       ),
+    );
+  }
+
+  /* ---------------- toggle settings dialog ---------------- */
+  Future<void> _toggleSettings() async {
+    if (_settingsVisible) {
+      Navigator.of(context, rootNavigator: true).pop();
+      setState(() => _settingsVisible = false);
+      return;
+    }
+
+    setState(() => _settingsVisible = true);
+
+    await showSettingsDialog(
+      context: context,
+      systemCtx: _systemCtx,
+      speechRate: _speechRate,
+      backend: _backend,
+      cameraSource: _cameraService.cameraSource,
+      ipCameraUrl: _cameraService.ipCameraUrl,
+      onDismiss: () => setState(() => _settingsVisible = false),
+      onSave: (newCtx, newRate, newBackend, newSrc, newUrl) async {
+        setState(() {
+          _systemCtx = newCtx;
+          _speechRate = newRate;
+          _chatHelpers.updateSystemContext(_systemCtx);
+
+          if (_backend != newBackend) {
+            _backend = newBackend;
+            _msgs.clear();
+            _initialising = true;
+            _redirectedOnError = false;
+            _bootstrap();
+          }
+        });
+
+        await _cameraService.updateCameraSettings(
+          newSource: newSrc,
+          newUrl: newUrl,
+        );
+        await _tts.setSpeechRate(_speechRate);
+      },
     );
   }
 }

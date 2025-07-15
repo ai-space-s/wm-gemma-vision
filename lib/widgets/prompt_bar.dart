@@ -1,11 +1,12 @@
-// widgets/prompt_bar.dart
 import 'package:flutter/material.dart';
 
-/// Prompt bar widget for text input and actions
+/// Prompt bar widget for text, voice input, and send actions.
 class PromptBar extends StatefulWidget {
   final Future<void> Function(String) onPromptWithPhoto;
   final Future<void> Function(String) onPromptTextOnly;
   final bool disabled;
+
+  // Speech‑to‑text control flags
   final bool speechEnabled;
   final bool listening;
   final VoidCallback onToggleListening;
@@ -28,10 +29,28 @@ class PromptBarState extends State<PromptBar> {
   final _ctrl = TextEditingController();
   bool _sending = false;
 
+  /* --------------- external helpers --------------- */
+  String get currentText => _ctrl.text; //  <-- used by ChatPage (F1)
+  void clear() => _ctrl.clear();
+
+  Future<void> sendTextOnly() async => _sendText(_ctrl.text);
+  Future<void> sendWithPhoto() async => _sendWithPhoto(_ctrl.text);
+
+  void updateText(String text) {
+    setState(() {
+      _ctrl.text = text;
+      _ctrl.selection = TextSelection.fromPosition(
+        TextPosition(offset: _ctrl.text.length),
+      );
+    });
+  }
+
+  /* --------------- internal send helpers ---------- */
   Future<void> _sendWithPhoto(String prompt) async {
     if (widget.disabled || _sending) return;
     final txt = prompt.trim();
     if (txt.isEmpty) return;
+
     _ctrl.clear();
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _sending = true);
@@ -42,10 +61,11 @@ class PromptBarState extends State<PromptBar> {
     }
   }
 
-  Future<void> _sendTextOnly(String prompt) async {
+  Future<void> _sendText(String prompt) async {
     if (widget.disabled || _sending) return;
     final txt = prompt.trim();
     if (txt.isEmpty) return;
+
     _ctrl.clear();
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _sending = true);
@@ -62,17 +82,7 @@ class PromptBarState extends State<PromptBar> {
     super.dispose();
   }
 
-  void clear() => _ctrl.clear();
-
-  void updateText(String text) {
-    setState(() {
-      _ctrl.text = text;
-      _ctrl.selection = TextSelection.fromPosition(
-        TextPosition(offset: _ctrl.text.length),
-      );
-    });
-  }
-
+  /* ------------------------------- UI ------------------------------- */
   @override
   Widget build(BuildContext context) {
     final disabled = widget.disabled || _sending;
@@ -81,7 +91,7 @@ class PromptBarState extends State<PromptBar> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Text input field
+          /* Text field */
           Container(
             decoration: BoxDecoration(
               color: Colors.blue.shade50,
@@ -96,35 +106,57 @@ class PromptBarState extends State<PromptBar> {
               enabled: !disabled,
               minLines: 1,
               maxLines: 5,
-              keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
               decoration: InputDecoration(
-                hintText: 'Type your message here...',
-                hintStyle: TextStyle(color: Colors.grey.shade600),
+                hintText: 'Type your message here…',
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.all(16),
               ),
-              onSubmitted: (text) {
-                if (text.trim().isNotEmpty) {
-                  _sendWithPhoto(text);
-                }
-              },
+              onSubmitted: (t) => _sendWithPhoto(t),
             ),
           ),
 
           const SizedBox(height: 12),
 
-          // Send buttons row
+          /* Voice button (under text field) */
+          if (widget.speechEnabled)
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: disabled ? null : widget.onToggleListening,
+                icon: Icon(
+                  widget.listening ? Icons.mic_off : Icons.mic,
+                  size: 24,
+                ),
+                label: Text(
+                  widget.listening ? 'Stop Voice Input' : 'Start Voice Input',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.listening ? Colors.red : Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                ),
+              ),
+            ),
+
+          if (widget.speechEnabled) const SizedBox(height: 12),
+
+          /* Send buttons */
           Row(
             children: [
-              // Send text only button
+              /* Text only */
               Expanded(
                 child: SizedBox(
                   height: 52,
                   child: ElevatedButton.icon(
-                    onPressed: disabled
-                        ? null
-                        : () => _sendTextOnly(_ctrl.text),
+                    onPressed: disabled ? null : () => _sendText(_ctrl.text),
                     icon: _sending
                         ? const SizedBox(
                             width: 20,
@@ -154,10 +186,8 @@ class PromptBarState extends State<PromptBar> {
                   ),
                 ),
               ),
-
               const SizedBox(width: 12),
-
-              // Send with photo button
+              /* With photo */
               Expanded(
                 child: SizedBox(
                   height: 52,
