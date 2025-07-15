@@ -77,100 +77,126 @@ class PromptBarState extends State<PromptBar> {
   Widget build(BuildContext context) {
     final disabled = widget.disabled || _sending;
 
-    return Semantics(
-      container: true,
-      label: 'Message input area',
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Semantics(
-                    label: 'Message input field',
-                    textField: true,
-                    child: TextField(
-                      controller: _ctrl,
-                      enabled: !disabled,
-                      decoration: const InputDecoration(
-                        hintText: 'Type your message here...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      onSubmitted: _sendWithPhoto,
-                    ),
-                  ),
-                ),
-                Semantics(
-                  label: widget.listening
-                      ? 'Stop voice input'
-                      : 'Start voice input',
-                  button: true,
-                  enabled: !disabled && widget.speechEnabled,
-                  child: IconButton(
-                    icon: Icon(widget.listening ? Icons.mic : Icons.mic_none),
-                    tooltip: widget.speechEnabled
-                        ? (widget.listening
-                              ? 'Stop dictation'
-                              : 'Start dictation')
-                        : 'Dictation unavailable',
-                    onPressed: disabled || !widget.speechEnabled
-                        ? null
-                        : widget.onToggleListening,
-                    color: widget.listening ? Colors.red : null,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Semantics(
-                  label: 'Send text message only',
-                  button: true,
-                  enabled: !disabled,
-                  child: ElevatedButton(
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Text input field
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: disabled ? Colors.grey.shade300 : Colors.blue.shade300,
+                width: 2,
+              ),
+            ),
+            child: TextField(
+              controller: _ctrl,
+              enabled: !disabled,
+              minLines: 1,
+              maxLines: 5,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                hintText: 'Type your message here...',
+                hintStyle: TextStyle(color: Colors.grey.shade600),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.all(16),
+              ),
+              onSubmitted: (text) {
+                if (text.trim().isNotEmpty) {
+                  _sendWithPhoto(text);
+                }
+              },
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Send buttons row
+          Row(
+            children: [
+              // Send text only button
+              Expanded(
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
                     onPressed: disabled
                         ? null
                         : () => _sendTextOnly(_ctrl.text),
-                    child: _sending
+                    icon: _sending
                         ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
                           )
-                        : const Icon(Icons.send),
+                        : const Icon(Icons.send, size: 24),
+                    label: const Text(
+                      'Send Text Only',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                Semantics(
-                  label: 'Send message with photo',
-                  button: true,
-                  enabled: !disabled,
-                  child: ElevatedButton(
+              ),
+
+              const SizedBox(width: 12),
+
+              // Send with photo button
+              Expanded(
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
                     onPressed: disabled
                         ? null
                         : () => _sendWithPhoto(_ctrl.text),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).primaryColor,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: _sending
+                    icon: _sending
                         ? const SizedBox(
-                            width: 16,
-                            height: 16,
+                            width: 20,
+                            height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
-                        : const Icon(Icons.camera_alt),
+                        : const Icon(Icons.camera_alt, size: 24),
+                    label: const Text(
+                      'Send with Photo',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.pink,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

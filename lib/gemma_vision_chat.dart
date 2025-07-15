@@ -40,6 +40,7 @@ class _ChatPageState extends State<ChatPage> {
   final _msgs = <ChatMessage>[];
 
   bool _showMessages = false;
+  bool _showCamera = true;
   bool _settingsVisible = false;
 
   late FlutterTts _tts;
@@ -171,6 +172,7 @@ class _ChatPageState extends State<ChatPage> {
 
   /* ------------------------------------------------------- helper switches */
   void _toggleMessages() => setState(() => _showMessages = !_showMessages);
+  void _toggleCamera() => setState(() => _showCamera = !_showCamera);
 
   Future<void> _toggleSettings() async {
     if (_settingsVisible) {
@@ -409,32 +411,44 @@ class _ChatPageState extends State<ChatPage> {
       if (_cameraService.camera != null &&
           _cameraService.cameraInitialized &&
           !_cameraService.cameraError) {
-        return CameraPreviewBox(camera: _cameraService.camera!);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: CameraPreviewBox(camera: _cameraService.camera!),
+        );
       } else {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _cameraService.cameraError ? Icons.error : Icons.camera_alt,
-                size: 64,
-                color: Colors.grey,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _cameraService.cameraError
-                    ? 'Camera Error'
-                    : 'Camera Initializing...',
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-            ],
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.black12,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _cameraService.cameraError ? Icons.error : Icons.camera_alt,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _cameraService.cameraError
+                      ? 'Camera Error'
+                      : 'Camera Initializing...',
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ],
+            ),
           ),
         );
       }
     } else {
-      return IpCameraPreviewBox(
-        ipCameraUrl: _cameraService.ipCameraUrl,
-        onWebViewCreated: (c) => _cameraService.setIpCameraWebView(c),
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: IpCameraPreviewBox(
+          ipCameraUrl: _cameraService.ipCameraUrl,
+          onWebViewCreated: (c) => _cameraService.setIpCameraWebView(c),
+        ),
       );
     }
   }
@@ -450,10 +464,7 @@ class _ChatPageState extends State<ChatPage> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text(
-                'Initializing Gemma…',
-                semanticsLabel: 'Initializing Gemma AI model',
-              ),
+              Text('Initializing Gemma…', style: TextStyle(fontSize: 18)),
             ],
           ),
         ),
@@ -473,104 +484,218 @@ class _ChatPageState extends State<ChatPage> {
           autofocus: true,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text('Gemma Vision Chat'),
+              title: const Text(
+                'Gemma Vision Chat',
+                style: TextStyle(fontSize: 16),
+              ),
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+              elevation: 0,
               actions: [
-                /* ⭐ star toggle */
-                Semantics(
-                  label: _showMessages ? 'Hide messages' : 'Show messages',
-                  button: true,
-                  child: IconButton(
-                    icon: Icon(_showMessages ? Icons.star : Icons.star_border),
-                    onPressed: _toggleMessages,
-                    tooltip: _showMessages ? 'Hide messages' : 'Show messages',
+                /* New chat button */
+                TextButton.icon(
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  label: const Text(
+                    'New Chat',
+                    style: TextStyle(color: Colors.white),
                   ),
+                  onPressed: _chatHelpers.resetting ? null : _newChat,
                 ),
-                /* new chat */
-                Semantics(
-                  label: 'New chat',
-                  button: true,
-                  child: IconButton(
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _chatHelpers.resetting ? null : _newChat,
-                    tooltip: 'New chat',
+                /* Settings button */
+                TextButton.icon(
+                  icon: const Icon(Icons.settings, color: Colors.white),
+                  label: const Text(
+                    'Settings',
+                    style: TextStyle(color: Colors.white),
                   ),
-                ),
-                /* ♥ heart settings */
-                Semantics(
-                  label: _settingsVisible ? 'Hide settings' : 'Show settings',
-                  button: true,
-                  child: IconButton(
-                    icon: const Icon(Icons.favorite),
-                    onPressed: _toggleSettings,
-                    tooltip: _settingsVisible
-                        ? 'Hide settings'
-                        : 'Show settings',
-                  ),
+                  onPressed: _toggleSettings,
                 ),
               ],
             ),
             body: Column(
               children: [
-                /* status */
+                /* Status bar */
                 if (_chatHelpers.isGenerating || _chatHelpers.isSpeaking)
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(8),
-                    color: Colors.blue.withOpacity(0.1),
-                    child: Semantics(
-                      liveRegion: true,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _chatHelpers.isGenerating
-                                ? (_chatHelpers.isSpeaking
-                                      ? 'Generating and speaking…'
-                                      : 'Generating response…')
-                                : 'Speaking…',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Colors.orange.shade300,
+                          width: 2,
+                        ),
                       ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.orange,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _chatHelpers.isGenerating
+                              ? (_chatHelpers.isSpeaking
+                                    ? 'Generating and speaking…'
+                                    : 'Generating response…')
+                              : 'Speaking…',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
-                /* camera */
-                Expanded(
-                  flex: _showMessages ? 3 : 5,
-                  child: Semantics(
-                    label: 'Camera view',
-                    child: _buildCameraPreview(),
+                /* View toggle buttons */
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _toggleCamera,
+                        icon: Icon(
+                          _showCamera ? Icons.visibility_off : Icons.visibility,
+                        ),
+                        label: Text(
+                          _showCamera ? 'Hide Camera' : 'Show Camera',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: _toggleMessages,
+                        icon: Icon(
+                          _showMessages
+                              ? Icons.chat_bubble
+                              : Icons.chat_bubble_outline,
+                        ),
+                        label: Text(
+                          _showMessages ? 'Hide Messages' : 'Show Messages',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepOrange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
-                /* messages */
-                if (_showMessages)
-                  Expanded(
-                    flex: 4,
-                    child: Semantics(
-                      label: 'Chat messages',
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(8),
-                        itemCount: _msgs.length,
-                        itemBuilder: (_, i) =>
-                            Focus(child: ChatBubble(msg: _msgs[i])),
+                /* Main content area */
+                Expanded(
+                  child: Container(
+                    color: Colors.grey.shade100,
+                    child: Column(
+                      children: [
+                        /* Camera preview */
+                        if (_showCamera)
+                          Expanded(
+                            flex: _showMessages ? 1 : 2,
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              child: _buildCameraPreview(),
+                            ),
+                          ),
+
+                        /* Messages list */
+                        if (_showMessages)
+                          Expanded(
+                            flex: _showCamera ? 1 : 2,
+                            child: Container(
+                              margin: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(12),
+                                itemCount: _msgs.length,
+                                itemBuilder: (_, i) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: ChatBubble(msg: _msgs[i]),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                /* Voice input button */
+                if (_speechEnabled)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed:
+                            (_chatHelpers.resetting ||
+                                _chatHelpers.isGenerating)
+                            ? null
+                            : _toggleDictation,
+                        icon: Icon(
+                          _listening ? Icons.mic_off : Icons.mic,
+                          size: 28,
+                        ),
+                        label: Text(
+                          _listening ? 'Stop Voice Input' : 'Start Voice Input',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _listening
+                              ? Colors.red
+                              : Colors.green,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(28),
+                          ),
+                        ),
                       ),
                     ),
                   ),
 
-                const Divider(height: 1),
-
-                /* legend + prompt */
+                /* Prompt bar */
                 Container(
-                  color: Theme.of(context).primaryColor.withOpacity(0.1),
-                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      top: BorderSide(color: Colors.grey.shade300),
+                    ),
+                  ),
+                  padding: const EdgeInsets.all(12),
                   child: PromptBar(
                     key: _promptBarKey,
                     onPromptWithPhoto: _captureAndSend,
