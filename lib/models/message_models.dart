@@ -1,8 +1,5 @@
 // models/message_models.dart
 
-/// Camera source enum
-enum CameraSource { phone, ip }
-
 /// Performance statistics for each message
 class MessageStats {
   final double? timeToFirstToken;

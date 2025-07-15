@@ -3,16 +3,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
-import 'package:camera/camera.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
 
 import 'services/gemma_service.dart';
 import 'services/streaming_tts_service.dart';
+import 'services/camera_service.dart';
 import 'models/message_models.dart';
 import 'widgets/camera_preview.dart';
 import 'widgets/ip_camera_preview.dart';
@@ -38,6 +36,7 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   /* ----------------------------------------------------------------- state */
   final _service = GemmaService.instance;
+  final _cameraService = CameraService.instance;
   final _msgs = <ChatMessage>[];
 
   bool _showMessages = false;
@@ -51,16 +50,6 @@ class _ChatPageState extends State<ChatPage> {
   double _speechRate = 0.5;
 
   PreferredBackend _backend = PreferredBackend.cpu;
-
-  // Camera management - keep instance alive
-  CameraController? _camera;
-  bool _cameraInitialized = false;
-  bool _cameraError = false;
-
-  /* camera source can be phone or IP cam */
-  CameraSource _cameraSource = CameraSource.phone;
-  String _ipCameraUrl = 'http://192.168.4.1';
-  InAppWebViewController? _ipCameraWebView;
 
   /* misc */
   final _promptBarKey = GlobalKey<PromptBarState>();
@@ -92,13 +81,15 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _bootstrap() async {
-    final prefs = await SharedPreferences.getInstance();
-    _cameraSource = CameraSource.values[prefs.getInt('camera_source') ?? 0];
-    _ipCameraUrl = prefs.getString('ip_camera_url') ?? 'http://192.168.4.1';
-
     _tts = FlutterTts();
     await _tts.setSpeechRate(_speechRate);
     _streamingTts = StreamingTtsService(_tts);
+
+    // Initialize camera service
+    await _cameraService.initialize();
+
+    // Listen to camera service changes
+    _cameraService.addListener(_onCameraServiceChanged);
 
     // Initialize chat helpers
     _chatHelpers = ChatHelpers(
@@ -122,51 +113,14 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
 
-    // Only initialize phone camera once at startup
-    if (_cameraSource == CameraSource.phone) {
-      await _initializePhoneCamera();
-    }
-
     if (!mounted) return;
     setState(() => _initialising = false);
     _rootFocus.requestFocus();
   }
 
-  /* -------------------------------------------------- camera initialisation */
-  Future<void> _initializePhoneCamera() async {
-    if (_camera != null) return; // Already initialized
-
-    try {
-      final cams = await availableCameras();
-      if (cams.isNotEmpty) {
-        final backCamera = cams.firstWhere(
-          (c) => c.lensDirection == CameraLensDirection.back,
-          orElse: () => cams.first,
-        );
-
-        _camera = CameraController(
-          backCamera,
-          ResolutionPreset.medium,
-          enableAudio: false,
-        );
-
-        await _camera!.initialize();
-
-        if (mounted) {
-          setState(() {
-            _cameraInitialized = true;
-            _cameraError = false;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Camera initialization error: $e');
-      if (mounted) {
-        setState(() {
-          _cameraInitialized = false;
-          _cameraError = true;
-        });
-      }
+  void _onCameraServiceChanged() {
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -211,6 +165,7 @@ class _ChatPageState extends State<ChatPage> {
     _speech.stop();
     _speech.cancel();
     _rootFocus.dispose();
+    _cameraService.removeListener(_onCameraServiceChanged);
     super.dispose();
   }
 
@@ -232,34 +187,20 @@ class _ChatPageState extends State<ChatPage> {
       systemCtx: _systemCtx,
       speechRate: _speechRate,
       backend: _backend,
-      cameraSource: _cameraSource,
-      ipCameraUrl: _ipCameraUrl,
+      cameraSource: _cameraService.cameraSource,
+      ipCameraUrl: _cameraService.ipCameraUrl,
       onDismiss: () {
         if (mounted) {
           setState(() => _settingsVisible = false);
         }
       },
       onSave: (newCtx, newRate, newBackend, newSource, newUrl) async {
-        final prefs = await SharedPreferences.getInstance();
         setState(() {
           _systemCtx = newCtx;
           _speechRate = newRate;
 
           // Update chat helpers with new context
           _chatHelpers.updateSystemContext(_systemCtx);
-
-          if (_cameraSource != newSource || _ipCameraUrl != newUrl) {
-            _cameraSource = newSource;
-            _ipCameraUrl = newUrl;
-            prefs
-              ..setInt('camera_source', _cameraSource.index)
-              ..setString('ip_camera_url', _ipCameraUrl);
-
-            // If switching to phone camera and not initialized, initialize it
-            if (_cameraSource == CameraSource.phone && _camera == null) {
-              _initializePhoneCamera();
-            }
-          }
 
           if (_backend != newBackend) {
             _backend = newBackend;
@@ -269,6 +210,13 @@ class _ChatPageState extends State<ChatPage> {
             _bootstrap();
           }
         });
+
+        // Update camera settings through service
+        await _cameraService.updateCameraSettings(
+          newSource: newSource,
+          newUrl: newUrl,
+        );
+
         await _tts.setSpeechRate(_speechRate);
       },
     );
@@ -295,42 +243,42 @@ class _ChatPageState extends State<ChatPage> {
   /* -------------------------------------- quick actions (camera + prompt) */
   Future<void> _quickAction1() async => _chatHelpers.quickAction1(
     _msgs,
-    _cameraSource,
-    _cameraInitialized,
-    _cameraError,
-    _camera,
-    _ipCameraWebView,
-    _ipCameraUrl,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
   );
 
   Future<void> _quickAction2() async => _chatHelpers.quickAction2(
     _msgs,
-    _cameraSource,
-    _cameraInitialized,
-    _cameraError,
-    _camera,
-    _ipCameraWebView,
-    _ipCameraUrl,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
   );
 
   Future<void> _quickAction3() async => _chatHelpers.quickAction3(
     _msgs,
-    _cameraSource,
-    _cameraInitialized,
-    _cameraError,
-    _camera,
-    _ipCameraWebView,
-    _ipCameraUrl,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
   );
 
   Future<void> _quickAction4() async => _chatHelpers.quickAction4(
     _msgs,
-    _cameraSource,
-    _cameraInitialized,
-    _cameraError,
-    _camera,
-    _ipCameraWebView,
-    _ipCameraUrl,
+    _cameraService.cameraSource,
+    _cameraService.cameraInitialized,
+    _cameraService.cameraError,
+    _cameraService.camera,
+    _cameraService.ipCameraWebView,
+    _cameraService.ipCameraUrl,
   );
 
   /* ------------------------- global logical key handler (Shortcuts layer) */
@@ -443,12 +391,12 @@ class _ChatPageState extends State<ChatPage> {
     await _chatHelpers.captureAndSend(
       prompt,
       _msgs,
-      _cameraSource,
-      _cameraInitialized,
-      _cameraError,
-      _camera,
-      _ipCameraWebView,
-      _ipCameraUrl,
+      _cameraService.cameraSource,
+      _cameraService.cameraInitialized,
+      _cameraService.cameraError,
+      _cameraService.camera,
+      _cameraService.ipCameraWebView,
+      _cameraService.ipCameraUrl,
     );
   }
 
@@ -457,22 +405,26 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _buildCameraPreview() {
-    if (_cameraSource == CameraSource.phone) {
-      if (_camera != null && _cameraInitialized && !_cameraError) {
-        return CameraPreviewBox(camera: _camera!);
+    if (_cameraService.cameraSource == CameraSource.phone) {
+      if (_cameraService.camera != null &&
+          _cameraService.cameraInitialized &&
+          !_cameraService.cameraError) {
+        return CameraPreviewBox(camera: _cameraService.camera!);
       } else {
         return Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                _cameraError ? Icons.error : Icons.camera_alt,
+                _cameraService.cameraError ? Icons.error : Icons.camera_alt,
                 size: 64,
                 color: Colors.grey,
               ),
               const SizedBox(height: 16),
               Text(
-                _cameraError ? 'Camera Error' : 'Camera Initializing...',
+                _cameraService.cameraError
+                    ? 'Camera Error'
+                    : 'Camera Initializing...',
                 style: const TextStyle(fontSize: 16, color: Colors.grey),
               ),
             ],
@@ -481,8 +433,8 @@ class _ChatPageState extends State<ChatPage> {
       }
     } else {
       return IpCameraPreviewBox(
-        ipCameraUrl: _ipCameraUrl,
-        onWebViewCreated: (c) => _ipCameraWebView = c,
+        ipCameraUrl: _cameraService.ipCameraUrl,
+        onWebViewCreated: (c) => _cameraService.setIpCameraWebView(c),
       );
     }
   }
