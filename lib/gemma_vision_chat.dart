@@ -145,9 +145,9 @@ class _ChatPageState extends State<ChatPage> {
 
     if (!mounted || _redirectedOnError) return;
     _redirectedOnError = true;
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => const DownloadPage()));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const ModelDownloadPage()),
+    );
   }
 
   /* ---------------------------------------------------------------- dispose */
