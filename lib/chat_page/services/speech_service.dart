@@ -1,0 +1,124 @@
+// lib/chat_page/services/speech_service.dart
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+import '../widgets/prompt_bar.dart';
+
+class SpeechService {
+  final SpeechToText _speech = SpeechToText();
+  final FlutterTts _tts;
+  final VoidCallback _onStateChanged;
+  final GlobalKey<PromptBarState> _promptBarKey;
+  final bool Function() _isGenerating;
+
+  bool _speechEnabled = false;
+  bool _listening = false;
+  String _dictationText = '';
+
+  SpeechService({
+    required FlutterTts tts,
+    required VoidCallback onStateChanged,
+    required GlobalKey<PromptBarState> promptBarKey,
+    required bool Function() isGenerating,
+  }) : _tts = tts,
+       _onStateChanged = onStateChanged,
+       _promptBarKey = promptBarKey,
+       _isGenerating = isGenerating;
+
+  // Getters
+  bool get speechEnabled => _speechEnabled;
+  bool get listening => _listening;
+
+  /// Initialize speech recognition
+  Future<void> initialize() async {
+    try {
+      _speechEnabled = await _speech.initialize(
+        onStatus: (status) {
+          // Restart if recognizer auto‑stops while key still held.
+          if (_listening && status == 'notListening') {
+            _listenAgain();
+          }
+        },
+        onError: (error) {
+          debugPrint('Speech error: $error');
+        },
+      );
+      _onStateChanged();
+    } catch (e) {
+      debugPrint('Speech initialization error: $e');
+    }
+  }
+
+  /// Start dictation
+  Future<void> startDictation() async {
+    if (!_speechEnabled || _isGenerating()) return;
+
+    if (!_listening) {
+      _dictationText = ''; // new session
+      _listening = true;
+      _onStateChanged();
+    }
+
+    _click();
+    _listenAgain();
+  }
+
+  /// Stop dictation
+  Future<void> stopDictation() async {
+    if (!_listening) return;
+    _click();
+    _listening = false;
+    await _speech.stop();
+    if (_dictationText.trim().isNotEmpty) {
+      await _tts.speak(_dictationText.trim());
+    }
+    _onStateChanged();
+  }
+
+  /// Toggle dictation on/off
+  Future<void> toggleDictation() async =>
+      _listening ? stopDictation() : startDictation();
+
+  /// Start listening again (internal)
+  void _listenAgain() {
+    _speech.listen(
+      onResult: (val) {
+        if (!_listening) return;
+
+        final full = (_dictationText + ' ' + val.recognizedWords).trim();
+        _promptBarKey.currentState?.updateText(full);
+
+        if (val.finalResult) _dictationText = full;
+      },
+      listenFor: const Duration(minutes: 5),
+      pauseFor: const Duration(seconds: 60),
+      partialResults: true,
+      cancelOnError: false,
+      listenMode: ListenMode.dictation,
+    );
+  }
+
+  /// Play click sound
+  void _click() => SystemSound.play(SystemSoundType.click);
+
+  /// Handle F2 key events for push-to-talk
+  KeyEventResult handleFocusKey(FocusNode _, KeyEvent e) {
+    if (e.logicalKey == LogicalKeyboardKey.f2) {
+      if (e is KeyDownEvent) {
+        startDictation();
+        return KeyEventResult.handled;
+      } else if (e is KeyUpEvent) {
+        stopDictation();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// Dispose resources
+  void dispose() {
+    _speech.stop();
+    _speech.cancel();
+  }
+}

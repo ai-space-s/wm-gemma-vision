@@ -1,12 +1,11 @@
+// lib/chat_page/services/chat_helpers.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:gemma_chat/chat_page/models/message_models.dart';
-import 'package:gemma_chat/chat_page/services/camera_service.dart';
-import 'package:gemma_chat/chat_page/widgets/prompt_bar.dart';
-import 'package:path_provider/path_provider.dart';
 
+import '../models/message_models.dart';
+import '../models/camera_context.dart';
+import '../widgets/prompt_bar.dart';
 import 'gemma_service.dart';
 import 'streaming_tts_service.dart';
 
@@ -65,19 +64,13 @@ class ChatHelpers {
     _showSnackBar('New chat started');
   }
 
-  /// Captures an image and sends it with a prompt
+  /// Captures an image and sends it with a prompt (simplified for phone camera only)
   Future<void> captureAndSend(
     String prompt,
     List<ChatMessage> messages,
-    CameraSource cameraSource,
-    bool cameraInitialized,
-    bool cameraError,
-    CameraController? camera,
-    InAppWebViewController? ipCameraWebView,
-    String ipCameraUrl,
+    CameraContext cameraContext,
   ) async {
-    if (cameraSource == CameraSource.phone &&
-        (!cameraInitialized || cameraError)) {
+    if (!cameraContext.cameraInitialized || cameraContext.cameraError) {
       messages.add(ChatMessage('Camera not available', isUser: false));
       _onStateChanged();
       return;
@@ -88,12 +81,7 @@ class ChatHelpers {
       _isSpeaking = false;
       _onStateChanged();
 
-      File? img;
-      if (cameraSource == CameraSource.phone) {
-        img = await _safeTakePicture(camera);
-      } else {
-        img = await _captureIpCameraImage(ipCameraWebView);
-      }
+      final img = await _safeTakePicture(cameraContext.camera);
 
       if (img == null) {
         messages.add(ChatMessage('Camera busy; try again…', isUser: false));
@@ -211,106 +199,32 @@ class ChatHelpers {
     }
   }
 
-  /// Captures an image from IP camera
-  Future<File?> _captureIpCameraImage(InAppWebViewController? webView) async {
-    try {
-      if (webView != null) {
-        final bytes = await webView.takeScreenshot();
-        if (bytes != null) {
-          final tmp = await getTemporaryDirectory();
-          final f = File('${tmp.path}/ip_cam.jpg');
-          await f.writeAsBytes(bytes);
-          return f;
-        }
-      }
-    } catch (e) {
-      debugPrint('IP cam screenshot error: $e');
-    }
-    return null;
-  }
-
-  /// Quick action helpers
+  /// Quick action helpers (simplified - phone camera only)
   Future<void> quickAction1(
     List<ChatMessage> messages,
-    CameraSource cameraSource,
-    bool cameraInitialized,
-    bool cameraError,
-    CameraController? camera,
-    InAppWebViewController? ipCameraWebView,
-    String ipCameraUrl,
+    CameraContext cameraContext,
   ) async {
-    await captureAndSend(
-      'Describe the room',
-      messages,
-      cameraSource,
-      cameraInitialized,
-      cameraError,
-      camera,
-      ipCameraWebView,
-      ipCameraUrl,
-    );
+    await captureAndSend('Describe the room', messages, cameraContext);
   }
 
   Future<void> quickAction2(
     List<ChatMessage> messages,
-    CameraSource cameraSource,
-    bool cameraInitialized,
-    bool cameraError,
-    CameraController? camera,
-    InAppWebViewController? ipCameraWebView,
-    String ipCameraUrl,
+    CameraContext cameraContext,
   ) async {
-    await captureAndSend(
-      'Tell me what you see',
-      messages,
-      cameraSource,
-      cameraInitialized,
-      cameraError,
-      camera,
-      ipCameraWebView,
-      ipCameraUrl,
-    );
+    await captureAndSend('Tell me what you see', messages, cameraContext);
   }
 
   Future<void> quickAction3(
     List<ChatMessage> messages,
-    CameraSource cameraSource,
-    bool cameraInitialized,
-    bool cameraError,
-    CameraController? camera,
-    InAppWebViewController? ipCameraWebView,
-    String ipCameraUrl,
+    CameraContext cameraContext,
   ) async {
-    await captureAndSend(
-      'Find an exit',
-      messages,
-      cameraSource,
-      cameraInitialized,
-      cameraError,
-      camera,
-      ipCameraWebView,
-      ipCameraUrl,
-    );
+    await captureAndSend('Find an exit', messages, cameraContext);
   }
 
   Future<void> quickAction4(
     List<ChatMessage> messages,
-    CameraSource cameraSource,
-    bool cameraInitialized,
-    bool cameraError,
-    CameraController? camera,
-    InAppWebViewController? ipCameraWebView,
-    String ipCameraUrl,
+    CameraContext cameraContext,
   ) async {
-    await captureAndSend(
-      'Read text',
-      messages,
-      cameraSource,
-      cameraInitialized,
-      cameraError,
-      camera,
-      ipCameraWebView,
-      ipCameraUrl,
-    );
+    await captureAndSend('Read text', messages, cameraContext);
   }
 }

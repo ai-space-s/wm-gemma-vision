@@ -1,25 +1,18 @@
+// lib/chat_page/widgets/settings_dialog.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
-import 'package:gemma_chat/chat_page/services/camera_service.dart';
 
-/// Show settings dialog with improved accessibility
+/// Show settings dialog (simplified - no speech rate, help moved here)
 Future<void> showSettingsDialog({
   required BuildContext context,
   required String systemCtx,
-  required double speechRate,
   required PreferredBackend backend,
-  required CameraSource cameraSource,
-  required String ipCameraUrl,
-  required Function(String, double, PreferredBackend, CameraSource, String)
-  onSave,
+  required Function(String, PreferredBackend) onSave,
   VoidCallback? onDismiss,
 }) async {
   final ctxCtl = TextEditingController(text: systemCtx);
-  final ipCtl = TextEditingController(text: ipCameraUrl);
 
-  double tmpRate = speechRate;
   PreferredBackend tmpBackend = backend;
-  CameraSource tmpCameraSource = cameraSource;
 
   final result = await showDialog<bool>(
     context: context,
@@ -48,55 +41,6 @@ Future<void> showSettingsDialog({
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-
-              // Camera source dropdown
-              Semantics(
-                label:
-                    'Camera source. Dropdown button. Current value: ${tmpCameraSource == CameraSource.phone ? "Phone camera" : "IP camera"}',
-                button: true,
-                child: Focus(
-                  child: DropdownButtonFormField<CameraSource>(
-                    value: tmpCameraSource,
-                    items: const [
-                      DropdownMenuItem(
-                        value: CameraSource.phone,
-                        child: Text('Phone camera'),
-                      ),
-                      DropdownMenuItem(
-                        value: CameraSource.ip,
-                        child: Text('IP camera'),
-                      ),
-                    ],
-                    onChanged: (v) =>
-                        setDialogState(() => tmpCameraSource = v!),
-                    decoration: const InputDecoration(
-                      labelText: 'Camera source',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ),
-
-              // IP camera URL (conditional)
-              if (tmpCameraSource == CameraSource.ip) ...[
-                const SizedBox(height: 16),
-                Semantics(
-                  label: 'IP camera URL. Text field',
-                  textField: true,
-                  child: Focus(
-                    child: TextField(
-                      controller: ipCtl,
-                      decoration: const InputDecoration(
-                        labelText: 'IP camera URL',
-                        hintText: 'http://192.168.4.1',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-
               const SizedBox(height: 16),
 
               // Backend dropdown
@@ -128,7 +72,7 @@ Future<void> showSettingsDialog({
 
               // Controller legend with improved semantics
               Semantics(
-                label: 'Controller button mappings reference',
+                label: 'Keyboard shortcuts reference',
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -139,22 +83,20 @@ Future<void> showSettingsDialog({
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Controller mappings:',
+                        'Keyboard shortcuts:',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      _buildMappingRow('A button', 'Describe room'),
-                      _buildMappingRow('B button', 'Tell me what you see'),
-                      _buildMappingRow('X button', 'Find exit'),
-                      _buildMappingRow('Y button', 'Read text'),
-                      _buildMappingRow('Plus button', 'New chat'),
-                      _buildMappingRow('Star button', 'Show messages'),
-                      _buildMappingRow('Heart button', 'Toggle settings'),
-                      _buildMappingRow(
-                        'Right trigger',
-                        'Start or stop dictation',
-                      ),
-                      _buildMappingRow('Left trigger', 'Enter or activate'),
+                      _buildMappingRow('F1', 'Send with photo'),
+                      _buildMappingRow('F2', 'Push-to-talk (hold)'),
+                      _buildMappingRow('F3', 'New chat'),
+                      _buildMappingRow('F4', 'Find exit'),
+                      _buildMappingRow('F5', 'Describe room'),
+                      _buildMappingRow('F6', 'Read text'),
+                      _buildMappingRow('F7', 'Tell me what you see'),
+                      _buildMappingRow('F8', 'Toggle settings'),
+                      _buildMappingRow('F9', 'Send text only'),
+                      _buildMappingRow('F10', 'Toggle messages'),
                     ],
                   ),
                 ),
@@ -188,13 +130,7 @@ Future<void> showSettingsDialog({
   onDismiss?.call();
 
   if (result == true) {
-    await onSave(
-      ctxCtl.text.trim(),
-      tmpRate,
-      tmpBackend,
-      tmpCameraSource,
-      ipCtl.text,
-    );
+    await onSave(ctxCtl.text.trim(), tmpBackend);
   }
 }
 
@@ -206,7 +142,7 @@ Widget _buildMappingRow(String button, String action) {
       child: Row(
         children: [
           SizedBox(
-            width: 100,
+            width: 60,
             child: Text(
               button,
               style: const TextStyle(fontWeight: FontWeight.w500),

@@ -1,164 +1,177 @@
+// lib/chat_page/services/camera_service.dart
 import 'dart:async';
-import 'dart:typed_data';
-import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
 
-enum CameraSource { phone, ip }
+import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 class CameraService extends ChangeNotifier {
-  static final CameraService _instance = CameraService._internal();
-  static CameraService get instance => _instance;
-  CameraService._internal();
+  static CameraService? _instance;
+  static CameraService get instance {
+    // Create new instance if disposed or null
+    if (_instance == null || _instance!._disposed) {
+      debugPrint('[CameraService] Creating new instance');
+      _instance = CameraService._internal();
+    }
+    return _instance!;
+  }
 
-  // Camera management
+  CameraService._internal() {
+    debugPrint('[CameraService] Service created');
+  }
+
+  // Camera state
   CameraController? _camera;
   bool _cameraInitialized = false;
   bool _cameraError = false;
 
-  // Camera source configuration
-  CameraSource _cameraSource = CameraSource.phone;
-  String _ipCameraUrl = 'http://192.168.4.1';
-  InAppWebViewController? _ipCameraWebView;
+  // Lifecycle tracking
+  bool _isInitializing = false;
+  bool _disposed = false;
 
   // Getters
   CameraController? get camera => _camera;
   bool get cameraInitialized => _cameraInitialized;
   bool get cameraError => _cameraError;
-  CameraSource get cameraSource => _cameraSource;
-  String get ipCameraUrl => _ipCameraUrl;
-  InAppWebViewController? get ipCameraWebView => _ipCameraWebView;
 
-  /// Initialize camera service with saved preferences
+  /// Initialize the camera service
   Future<void> initialize() async {
-    final prefs = await SharedPreferences.getInstance();
-    _cameraSource = CameraSource.values[prefs.getInt('camera_source') ?? 0];
-    _ipCameraUrl = prefs.getString('ip_camera_url') ?? 'http://192.168.4.1';
-
-    // Only initialize phone camera if that's the selected source
-    if (_cameraSource == CameraSource.phone) {
-      await initializePhoneCamera();
+    if (_disposed) {
+      debugPrint('[CameraService] Cannot initialize - service disposed');
+      return;
     }
+
+    if (_isInitializing) {
+      debugPrint('[CameraService] Already initializing, waiting...');
+      // Wait for current initialization to complete
+      while (_isInitializing && !_disposed) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      return;
+    }
+
+    await _initializePhoneCamera();
   }
 
   /// Initialize phone camera
-  Future<void> initializePhoneCamera() async {
-    if (_camera != null) return; // Already initialized
+  Future<void> _initializePhoneCamera() async {
+    if (_disposed) return;
 
     try {
-      final cams = await availableCameras();
-      if (cams.isNotEmpty) {
-        final backCamera = cams.firstWhere(
-          (c) => c.lensDirection == CameraLensDirection.back,
-          orElse: () => cams.first,
-        );
+      _isInitializing = true;
+      debugPrint('[CameraService] Starting camera initialization...');
 
-        _camera = CameraController(
-          backCamera,
-          ResolutionPreset.medium,
-          enableAudio: false,
-        );
+      // Clean up existing camera
+      await _cleanupCamera();
 
-        await _camera!.initialize();
+      if (_disposed) return;
 
-        _cameraInitialized = true;
-        _cameraError = false;
-        notifyListeners();
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        throw Exception('No cameras available');
       }
+
+      // Find back camera, fallback to first available
+      final camera = cameras.firstWhere(
+        (cam) => cam.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      if (_disposed) return;
+
+      _camera = CameraController(
+        camera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
+      await _camera!.initialize();
+
+      if (_disposed) {
+        await _cleanupCamera();
+        return;
+      }
+
+      _cameraInitialized = true;
+      _cameraError = false;
+      debugPrint('[CameraService] Camera initialized successfully');
     } catch (e) {
-      debugPrint('Camera initialization error: $e');
-      _cameraInitialized = false;
+      debugPrint('[CameraService] Camera initialization error: $e');
       _cameraError = true;
-      notifyListeners();
-    }
-  }
-
-  /// Update camera source and URL
-  Future<void> updateCameraSettings({
-    required CameraSource newSource,
-    required String newUrl,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final sourceChanged = _cameraSource != newSource;
-    final urlChanged = _ipCameraUrl != newUrl;
-
-    if (sourceChanged || urlChanged) {
-      _cameraSource = newSource;
-      _ipCameraUrl = newUrl;
-
-      await prefs.setInt('camera_source', _cameraSource.index);
-      await prefs.setString('ip_camera_url', _ipCameraUrl);
-
-      // If switching to phone camera and not initialized, initialize it
-      if (_cameraSource == CameraSource.phone && _camera == null) {
-        await initializePhoneCamera();
+      _cameraInitialized = false;
+      await _cleanupCamera();
+    } finally {
+      _isInitializing = false;
+      if (!_disposed) {
+        _safeNotifyListeners();
       }
-
-      notifyListeners();
     }
   }
 
-  /// Set IP camera web view controller
-  void setIpCameraWebView(InAppWebViewController controller) {
-    _ipCameraWebView = controller;
-  }
-
-  /// Take a picture with the phone camera
-  Future<XFile?> takePicture() async {
-    if (_camera == null || !_cameraInitialized || _cameraError) {
-      return null;
-    }
-
-    try {
-      return await _camera!.takePicture();
-    } catch (e) {
-      debugPrint('Error taking picture: $e');
-      return null;
+  /// Clean up camera resources
+  Future<void> _cleanupCamera() async {
+    if (_camera != null) {
+      try {
+        if (_camera!.value.isInitialized) {
+          await _camera!.dispose();
+        }
+      } catch (e) {
+        debugPrint('[CameraService] Error during camera cleanup: $e');
+      } finally {
+        _camera = null;
+        _cameraInitialized = false;
+      }
     }
   }
 
-  /// Capture screenshot from IP camera
-  Future<Uint8List?> captureIpCameraScreenshot() async {
-    if (_ipCameraWebView == null) return null;
-
-    try {
-      return await _ipCameraWebView!.takeScreenshot();
-    } catch (e) {
-      debugPrint('Error capturing IP camera screenshot: $e');
-      return null;
-    }
-  }
-
-  /// Get current camera image based on source
-  Future<dynamic> getCurrentImage() async {
-    switch (_cameraSource) {
-      case CameraSource.phone:
-        return await takePicture();
-      case CameraSource.ip:
-        return await captureIpCameraScreenshot();
+  /// Safely notify listeners
+  void _safeNotifyListeners() {
+    if (!_disposed && hasListeners) {
+      try {
+        notifyListeners();
+      } catch (e) {
+        debugPrint('[CameraService] Error notifying listeners: $e');
+      }
     }
   }
 
   /// Check if camera is ready for capture
-  bool get isReadyForCapture {
-    switch (_cameraSource) {
-      case CameraSource.phone:
-        return _cameraInitialized && !_cameraError && _camera != null;
-      case CameraSource.ip:
-        return _ipCameraWebView != null;
-    }
+  bool get canCapture {
+    if (_disposed) return false;
+    return _cameraInitialized && !_cameraError && _camera != null;
   }
 
-  /// Dispose camera resources
+  /// Restart camera (useful for error recovery)
+  Future<void> restart() async {
+    if (_disposed) return;
+
+    debugPrint('[CameraService] Restarting camera...');
+    await _cleanupCamera();
+    _cameraError = false;
+    await initialize();
+  }
+
+  /// Dispose the service
   @override
   void dispose() {
-    _camera?.dispose();
-    _camera = null;
-    _cameraInitialized = false;
-    _cameraError = false;
-    _ipCameraWebView = null;
+    if (_disposed) return;
+
+    debugPrint('[CameraService] Disposing service...');
+    _disposed = true;
+    _isInitializing = false;
+
+    // Clean up camera without awaiting to prevent blocking
+    _cleanupCamera().catchError((e) {
+      debugPrint('[CameraService] Error during disposal: $e');
+    });
+
     super.dispose();
+
+    // Clear the static instance so a new one can be created
+    if (_instance == this) {
+      _instance = null;
+    }
   }
 }
