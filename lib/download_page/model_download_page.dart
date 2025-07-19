@@ -39,6 +39,7 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
   @override
   void dispose() {
     _logSubscription.cancel();
+    _logic.dispose(); // Dispose the logic to clean up timers
     super.dispose();
   }
 

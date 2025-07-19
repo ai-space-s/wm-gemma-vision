@@ -24,12 +24,20 @@ class DownloadPageLogic {
   final Function(List<String>) setErrorMessages;
   final Function(bool) setShowAgreementSheet;
 
+  Timer? _monitoringTimer; // Track the monitoring timer
+
   DownloadPageLogic({
     required this.setDownloadStatus,
     required this.setProgress,
     required this.setErrorMessages,
     required this.setShowAgreementSheet,
   });
+
+  // Clean up timer when logic is disposed
+  void dispose() {
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+  }
 
   /// Returns true when the model file is present and > 0 bytes.
   /// Also updates the UI state to `DownloadStatus.completed`.
@@ -296,78 +304,120 @@ class DownloadPageLogic {
   }
 
   void monitorDownload(String taskId, BuildContext? context) {
-    Timer.periodic(const Duration(seconds: 1), (timer) async {
-      final tasks = await DownloadManager.getAllTasks();
-      final task = tasks.firstWhere(
-        (task) => task.taskId == taskId,
-        orElse: () => DownloadTask(
-          taskId: '',
-          status: DownloadTaskStatus.undefined,
-          progress: 0,
-          url: '',
-          filename: null,
-          savedDir: '',
-          timeCreated: 0,
-          allowCellular: true,
-        ),
-      );
+    // Cancel any existing timer first
+    _monitoringTimer?.cancel();
 
-      if (task.taskId.isEmpty) {
-        timer.cancel();
-        return;
-      }
+    Logger.info('Starting download monitoring for task: $taskId');
 
-      setProgress(
-        DownloadProgress(
-          totalBytes: 100,
-          downloadedBytes: task.progress,
-          downloadRate: 0,
-          remainingTime: Duration.zero,
-          status: task.status,
-        ),
-      );
+    _monitoringTimer = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) async {
+      try {
+        final tasks = await DownloadManager.getAllTasks();
+        final task = tasks.firstWhere(
+          (task) => task.taskId == taskId,
+          orElse: () => DownloadTask(
+            taskId: '',
+            status: DownloadTaskStatus.undefined,
+            progress: 0,
+            url: '',
+            filename: null,
+            savedDir: '',
+            timeCreated: 0,
+            allowCellular: true,
+          ),
+        );
 
-      switch (task.status) {
-        case DownloadTaskStatus.complete:
+        // If task not found, stop monitoring
+        if (task.taskId.isEmpty) {
+          Logger.warning('Task $taskId not found, stopping monitoring');
           timer.cancel();
+          _monitoringTimer = null;
+          return;
+        }
 
-          // Download completed
-          setDownloadStatus(DownloadStatus.completed);
-          await DownloadStateManager.saveDownloadCompleted();
-          Logger.info('Download completed successfully');
+        // Update progress
+        setProgress(
+          DownloadProgress(
+            totalBytes: 100,
+            downloadedBytes: task.progress,
+            downloadRate: 0,
+            remainingTime: Duration.zero,
+            status: task.status,
+          ),
+        );
 
-          // Navigate to ChatPage immediately
-          if (context != null && context.mounted) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => ChatPage()),
+        // Handle status changes
+        switch (task.status) {
+          case DownloadTaskStatus.complete:
+            Logger.info('Download completed for task: $taskId');
+            timer.cancel();
+            _monitoringTimer = null;
+
+            // Download completed
+            setDownloadStatus(DownloadStatus.completed);
+            await DownloadStateManager.saveDownloadCompleted();
+            Logger.info('Download completed successfully');
+
+            // Navigate to ChatPage immediately
+            if (context != null && context.mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (context) => ChatPage()),
+              );
+            }
+            break;
+
+          case DownloadTaskStatus.failed:
+            Logger.error('Download failed for task: $taskId');
+            timer.cancel();
+            _monitoringTimer = null;
+            setDownloadStatus(DownloadStatus.failed);
+            await DownloadStateManager.clearDownloadState();
+            handleError(
+              'Download failed - network error or insufficient storage',
             );
-          }
-          break;
-        case DownloadTaskStatus.failed:
-          timer.cancel();
-          setDownloadStatus(DownloadStatus.failed);
-          await DownloadStateManager.clearDownloadState();
-          handleError('Download failed');
-          break;
-        case DownloadTaskStatus.canceled:
-          timer.cancel();
-          // Reset to original download state instead of showing "cancelled"
-          setDownloadStatus(DownloadStatus.notStarted);
-          setProgress(null);
-          await DownloadStateManager.clearDownloadState();
-          Logger.info('Download was cancelled and reset to initial state');
-          break;
-        case DownloadTaskStatus.paused:
-          setDownloadStatus(DownloadStatus.paused);
-          break;
-        case DownloadTaskStatus.running:
-          // Keep current downloading status
-          break;
-        case DownloadTaskStatus.enqueued:
-          // Download is queued, keep showing downloading
-          break;
-        default:
-          break;
+            break;
+
+          case DownloadTaskStatus.canceled:
+            Logger.info('Download cancelled for task: $taskId');
+            timer.cancel();
+            _monitoringTimer = null;
+            // Reset to original download state instead of showing "cancelled"
+            setDownloadStatus(DownloadStatus.notStarted);
+            setProgress(null);
+            await DownloadStateManager.clearDownloadState();
+            Logger.info('Download was cancelled and reset to initial state');
+            break;
+
+          case DownloadTaskStatus.paused:
+            setDownloadStatus(DownloadStatus.paused);
+            break;
+
+          case DownloadTaskStatus.running:
+          case DownloadTaskStatus.enqueued:
+            // Keep current downloading status
+            if (task.status == DownloadTaskStatus.running) {
+              setDownloadStatus(DownloadStatus.downloading);
+            }
+            break;
+
+          case DownloadTaskStatus.undefined:
+            Logger.warning(
+              'Task $taskId has undefined status, stopping monitoring',
+            );
+            timer.cancel();
+            _monitoringTimer = null;
+            break;
+
+          default:
+            Logger.debug('Unknown status ${task.status} for task: $taskId');
+            break;
+        }
+      } catch (e) {
+        Logger.error('Error monitoring download: $e');
+        timer.cancel();
+        _monitoringTimer = null;
+        handleError('Error monitoring download: $e');
       }
     });
   }
@@ -526,6 +576,10 @@ class DownloadPageLogic {
   }
 
   Future<void> cancelDownload() async {
+    // Cancel monitoring first
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+
     await DownloadManager.cancelAndDeleteDownload();
     await DownloadStateManager.clearDownloadState();
     setDownloadStatus(DownloadStatus.notStarted);
