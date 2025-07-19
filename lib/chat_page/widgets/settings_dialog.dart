@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
-import 'package:gemma_chat/services/camera_service.dart';
+import 'package:gemma_chat/chat_page/services/camera_service.dart';
 
 /// Show settings dialog with improved accessibility
 Future<void> showSettingsDialog({

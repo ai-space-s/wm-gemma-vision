@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:gemma_chat/download_page/model_download_page.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
@@ -18,7 +19,6 @@ import 'widgets/ip_camera_preview.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/prompt_bar.dart';
 import 'widgets/settings_dialog.dart';
-import 'download_page.dart';
 import 'services/chat_helpers.dart';
 
 /// Intent so controller keys win even when a TextField has focus.

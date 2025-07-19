@@ -2,9 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:gemma_chat/models/message_models.dart';
-import 'package:gemma_chat/services/camera_service.dart';
-import 'package:gemma_chat/widgets/prompt_bar.dart';
+import 'package:gemma_chat/chat_page/models/message_models.dart';
+import 'package:gemma_chat/chat_page/services/camera_service.dart';
+import 'package:gemma_chat/chat_page/widgets/prompt_bar.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'gemma_service.dart';
