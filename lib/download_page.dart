@@ -325,20 +325,32 @@ class TokenManager {
 class DownloadManager {
   static String? _currentTaskId;
   static final ReceivePort _port = ReceivePort();
+  static void attachToTask(String taskId) {
+    _currentTaskId = taskId;
+  }
 
+  // DownloadManager (same class, just replace this method)
   static Future<void> initialize() async {
-    await FlutterDownloader.initialize(debug: true);
+    // --- DO NOT call FlutterDownloader.initialize() here ---
+    // It has already been called once in main().
+    // All we do now is (re)wire the port so the UI isolate
+    // can receive progress updates.
+
+    // Remove any previous mapping to avoid “port already registered” errors.
+    IsolateNameServer.removePortNameMapping('downloader_send_port');
+
     IsolateNameServer.registerPortWithName(
       _port.sendPort,
       'downloader_send_port',
     );
+
+    // Listen for messages coming from the background isolate.
     _port.listen((dynamic data) {
-      String id = data[0];
-      int status = data[1];
-      int progress = data[2];
-      Logger.debug('Download task $id: status=$status, progress=$progress%');
+      final id = data[0] as String;
+      final status = DownloadTaskStatus.fromInt(data[1] as int);
+      final progress = data[2] as int;
+      Logger.debug('Task $id: $status, $progress%');
     });
-    FlutterDownloader.registerCallback(downloadCallback);
   }
 
   @pragma('vm:entry-point')
@@ -430,11 +442,26 @@ class DownloadManager {
     }
   }
 
-  static Future<void> resumeDownload() async {
-    if (_currentTaskId != null) {
+  static Future<String?> resumeDownload() async {
+    if (_currentTaskId == null) {
+      Logger.warning('No paused task to resume');
+      return null;
+    }
+
+    try {
+      // flutter_downloader creates a brand‑new taskID when resuming
       final newTaskId = await FlutterDownloader.resume(taskId: _currentTaskId!);
-      _currentTaskId = newTaskId;
-      Logger.info('Download resumed with new task ID: $newTaskId');
+
+      if (newTaskId != null) {
+        _currentTaskId = newTaskId; // 🔑 switch to the fresh job ID
+        Logger.info('Download resumed with new ID: $newTaskId');
+      } else {
+        Logger.warning('Resume returned a null taskId');
+      }
+      return newTaskId;
+    } catch (e) {
+      Logger.error('Error while resuming download: $e');
+      return null;
     }
   }
 
@@ -487,7 +514,6 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
   DownloadProgress? _progress;
   List<String> _errorMessages = [];
   bool _showAgreementSheet = false;
-  String? _currentTaskId;
   late StreamSubscription _logSubscription;
 
   @override
@@ -521,29 +547,42 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
     await _checkForOngoingDownloads();
   }
 
+  /// Returns true when the model file is present and > 0 bytes.
+  /// Also updates the UI state to `DownloadStatus.completed`.
   Future<bool> _checkIfModelExists() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/$_modelName');
-
-    if (await file.exists()) {
-      final fileSize = await file.length();
-      Logger.info(
-        'Found model file with size: ${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB',
-      );
-
-      setState(() {
-        _downloadStatus = DownloadStatus.completed;
-      });
-      return true;
+    // 1)  Find a completed task whose filename matches our model.
+    final tasks = await DownloadManager.getAllTasks();
+    DownloadTask? task;
+    for (final t in tasks) {
+      if (t.filename == _modelName && t.status == DownloadTaskStatus.complete) {
+        task = t;
+        break;
+      }
     }
 
-    Logger.debug('Model file does not exist');
+    // 2)  Prefer the exact path reported by flutter_downloader,
+    //     otherwise fall back to the app‑documents directory.
+    final String filePath = task != null
+        ? '${task.savedDir}/${task.filename}'
+        : '${(await getApplicationDocumentsDirectory()).path}/$_modelName';
+
+    // 3)  Validate the file.
+    final file = File(filePath);
+    if (await file.exists()) {
+      final size = await file.length();
+      if (size > 0) {
+        Logger.info('Found model file ($size bytes) at $filePath');
+        setState(() => _downloadStatus = DownloadStatus.completed);
+        return true;
+      }
+    }
+
+    Logger.debug('Model file not found at $filePath');
     return false;
   }
 
   Future<void> _checkForOngoingDownloads() async {
     try {
-      // First check our saved state
       final savedState = await DownloadStateManager.getDownloadState();
       final savedTaskId = await DownloadStateManager.getDownloadTaskId();
 
@@ -556,10 +595,13 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
           'Found saved download in progress with task ID: $savedTaskId',
         );
 
-        // Check if this task still exists in flutter_downloader
+        // 🔑  Re-attach the manager so pause/resume work again
+        DownloadManager.attachToTask(savedTaskId);
+
+        // Query the task list
         final tasks = await DownloadManager.getAllTasks();
         final task = tasks.firstWhere(
-          (task) => task.taskId == savedTaskId,
+          (t) => t.taskId == savedTaskId,
           orElse: () => DownloadTask(
             taskId: '',
             status: DownloadTaskStatus.undefined,
@@ -572,140 +614,67 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
           ),
         );
 
-        if (task.taskId.isNotEmpty) {
-          _currentTaskId = task.taskId;
-          Logger.info(
-            'Found download task: ${task.taskId}, status: ${task.status}, progress: ${task.progress}%',
-          );
-
-          switch (task.status) {
-            case DownloadTaskStatus.running:
-              setState(() {
-                _downloadStatus = DownloadStatus.downloading;
-              });
-              _monitorDownload(task.taskId);
-              Logger.info('Resumed monitoring running download');
-              break;
-            case DownloadTaskStatus.paused:
-              setState(() {
-                _downloadStatus = DownloadStatus.paused;
-              });
-              _monitorDownload(task.taskId);
-              Logger.info('Found paused download, showing resume option');
-              break;
-            case DownloadTaskStatus.enqueued:
-              setState(() {
-                _downloadStatus = DownloadStatus.downloading;
-              });
-              _monitorDownload(task.taskId);
-              Logger.info('Found enqueued download, monitoring progress');
-              break;
-            case DownloadTaskStatus.complete:
-              // Download completed while app was closed
-              if (await _checkIfModelExists()) {
-                await DownloadStateManager.saveDownloadCompleted();
-                Logger.info(
-                  'Download completed while app was closed, navigating to chat',
-                );
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (context) => ChatPage()),
-                  );
-                });
-              } else {
-                // Task says complete but no file found
-                Logger.warning(
-                  'Download task complete but file not found, clearing state',
-                );
-                await DownloadStateManager.clearDownloadState();
-                await FlutterDownloader.remove(
-                  taskId: task.taskId,
-                  shouldDeleteContent: false,
-                );
-              }
-              break;
-            case DownloadTaskStatus.failed:
-              Logger.warning('Download failed while app was closed');
-              setState(() {
-                _downloadStatus = DownloadStatus.failed;
-              });
-              await DownloadStateManager.clearDownloadState();
-              _handleError('Download failed while app was in background');
-              break;
-            case DownloadTaskStatus.canceled:
-              Logger.info('Download was canceled while app was closed');
-              await DownloadStateManager.clearDownloadState();
-              break;
-            default:
-              // Unknown or undefined status, clean up
-              Logger.warning(
-                'Unknown download status: ${task.status}, cleaning up',
-              );
-              await DownloadStateManager.clearDownloadState();
-              await FlutterDownloader.remove(
-                taskId: task.taskId,
-                shouldDeleteContent: false,
-              );
-              break;
-          }
-        } else {
-          // Saved task ID doesn't exist in download manager anymore
-          Logger.warning(
-            'Saved task ID not found in download manager, checking for completed file',
-          );
+        if (task.taskId.isEmpty) {
+          Logger.warning('Task ID not found in download manager');
           await DownloadStateManager.clearDownloadState();
+          return;
+        }
 
-          // Maybe download completed and task was cleaned up, check if file exists
-          if (await _checkIfModelExists()) {
-            Logger.info('File exists despite missing task, navigating to chat');
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => ChatPage()),
-              );
-            });
-          }
+        Logger.info(
+          'Found download task: ${task.taskId}, '
+          'status: ${task.status}, progress: ${task.progress}%',
+        );
+
+        switch (task.status) {
+          case DownloadTaskStatus.paused:
+            setState(() => _downloadStatus = DownloadStatus.paused);
+            _monitorDownload(task.taskId);
+            Logger.info('Found paused download, showing resume option');
+            break;
+          case DownloadTaskStatus.running:
+          case DownloadTaskStatus.enqueued:
+            setState(() => _downloadStatus = DownloadStatus.downloading);
+            _monitorDownload(task.taskId);
+            break;
+          case DownloadTaskStatus.complete:
+            if (await _checkIfModelExists()) {
+              await DownloadStateManager.saveDownloadCompleted();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (context) => ChatPage()),
+                );
+              });
+            } else {
+              await DownloadStateManager.clearDownloadState();
+            }
+            break;
+          case DownloadTaskStatus.failed:
+            setState(() => _downloadStatus = DownloadStatus.failed);
+            await DownloadStateManager.clearDownloadState();
+            _handleError('Download failed while app was in background');
+            break;
+          case DownloadTaskStatus.canceled:
+          default:
+            await DownloadStateManager.clearDownloadState();
+            break;
         }
       } else if (savedState == 'completed') {
-        // Previously marked as completed, check if file still exists
         if (await _checkIfModelExists()) {
-          Logger.info('Download was marked complete, navigating to chat');
           WidgetsBinding.instance.addPostFrameCallback((_) {
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(builder: (context) => ChatPage()),
             );
           });
         } else {
-          // File was deleted somehow
-          Logger.warning(
-            'Download was marked complete but file missing, clearing state',
-          );
           await DownloadStateManager.clearDownloadState();
         }
       } else {
-        // No saved state or state is clear - check if file exists anyway
-        if (await _checkIfModelExists()) {
-          Logger.info('No saved state but file exists, navigating to chat');
-          await DownloadStateManager.saveDownloadCompleted();
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => ChatPage()),
-            );
-          });
-        } else {
-          Logger.info(
-            'No download in progress and no file, ready for new download',
-          );
-        }
+        await _checkIfModelExists(); // just in case the file is already there
       }
     } catch (e) {
       Logger.error('Error checking for ongoing downloads: $e');
       await DownloadStateManager.clearDownloadState();
     }
-  }
-
-  Future<String> _getModelPath() async {
-    final dir = await getApplicationDocumentsDirectory();
-    return '${dir.path}/$_modelName';
   }
 
   Future<void> _startDownload() async {
@@ -846,7 +815,6 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
     );
 
     if (taskId != null) {
-      _currentTaskId = taskId;
       // Save that we have a download in progress
       await DownloadStateManager.saveDownloadInProgress(taskId);
       _monitorDownload(taskId);
@@ -963,18 +931,20 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
   }
 
   void _resumeDownload() async {
-    await DownloadManager.resumeDownload();
-    setState(() {
-      _downloadStatus = DownloadStatus.downloading;
-    });
-  }
+    // Ask the manager to resume; get the new taskID.
+    final newTaskId = await DownloadManager.resumeDownload();
+    if (newTaskId == null) {
+      _handleError('Unable to resume download (not resumable?)');
+      return;
+    }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024)
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    // Persist the fresh ID so we survive process death
+    await DownloadStateManager.saveDownloadInProgress(newTaskId);
+
+    // Start listening to progress from the correct task
+    _monitorDownload(newTaskId);
+
+    setState(() => _downloadStatus = DownloadStatus.downloading);
   }
 
   void _showLogsDialog() {
