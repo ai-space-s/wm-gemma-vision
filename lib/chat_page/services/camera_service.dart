@@ -95,10 +95,18 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
     _initCompleter = Completer<void>();
 
     try {
-      await _ensureForegroundReady(); // <-- NEW
+      await _ensureForegroundReady();
 
       debugPrint('[CameraService] Starting camera initialization…');
       await _cleanupCamera();
+
+      // Early disposal check
+      if (_disposed) {
+        if (_initCompleter != null && !_initCompleter!.isCompleted) {
+          _initCompleter!.complete();
+        }
+        return;
+      }
 
       final cameras = await availableCameras();
       if (cameras.isEmpty) throw Exception('No cameras available');
@@ -108,31 +116,106 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
         orElse: () => cameras.first,
       );
 
+      // Another disposal check before creating controller
+      if (_disposed) {
+        if (_initCompleter != null && !_initCompleter!.isCompleted) {
+          _initCompleter!.complete();
+        }
+        return;
+      }
+
       _camera = CameraController(
         description,
+        // Use max resolution for best capture quality
+        // Note: This may impact performance on older devices
         ResolutionPreset.max,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
-      await _camera!.initialize();
-      _camera!.addListener(_onCameraError);
+      // Verify camera controller was created
+      final camera = _camera;
+      if (camera == null) {
+        throw Exception('Failed to create camera controller');
+      }
+
+      // Check disposal one more time before initialize
+      if (_disposed) {
+        await camera.dispose();
+        _camera = null;
+        if (_initCompleter != null && !_initCompleter!.isCompleted) {
+          _initCompleter!.complete();
+        }
+        return;
+      }
+
+      await camera.initialize();
+
+      // Final disposal check after initialization
+      if (_disposed) {
+        await camera.dispose();
+        _camera = null;
+        if (_initCompleter != null && !_initCompleter!.isCompleted) {
+          _initCompleter!.complete();
+        }
+        return;
+      }
+
+      // Only add listener if we're still not disposed
+      camera.addListener(_onCameraError);
 
       _cameraError = false;
       _cameraInitialized = true;
       debugPrint('[CameraService] Camera initialized successfully');
-      _initCompleter!.complete();
+      debugPrint('[CameraService] Preview size: ${camera.value.previewSize}');
+
+      // Safe completion check
+      if (_initCompleter != null && !_initCompleter!.isCompleted) {
+        _initCompleter!.complete();
+      }
     } catch (e) {
       debugPrint('[CameraService] Camera initialization error: $e');
       _cameraError = true;
       _cameraInitialized = false;
       await _cleanupCamera();
-      _initCompleter!.completeError(e);
+
+      // Safe error completion check
+      if (_initCompleter != null && !_initCompleter!.isCompleted) {
+        _initCompleter!.completeError(e);
+      }
     } finally {
       _isInitializing = false;
       _initCompleter = null;
       _safeNotifyListeners();
     }
+  }
+
+  /* --------------------------------------------------------- image capture */
+  /// Captures a high-quality image
+  Future<XFile?> captureImage() async {
+    if (!canCapture) {
+      debugPrint('[CameraService] Cannot capture - camera not ready');
+      return null;
+    }
+
+    try {
+      debugPrint('[CameraService] Capturing image...');
+      final image = await _camera!.takePicture();
+      debugPrint('[CameraService] Image captured: ${image.path}');
+      return image;
+    } catch (e) {
+      debugPrint('[CameraService] Error capturing image: $e');
+      return null;
+    }
+  }
+
+  /// Gets information about the captured image resolution
+  Size? get captureResolution {
+    if (_camera?.description == null) return null;
+
+    // Note: Actual capture resolution depends on the camera hardware
+    // and the ResolutionPreset used. The preview size is different from capture size.
+    return _camera!.value.previewSize;
   }
 
   /* -------------------------------------------------------- error handling */

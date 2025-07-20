@@ -21,13 +21,6 @@ class CameraPreviewBox extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.grey[900],
                 borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
               ),
               child: const Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -69,16 +62,7 @@ class CameraPreviewBox extends StatelessWidget {
           child: Container(
             width: previewWidth,
             height: previewHeight,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 15,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(24)),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(24),
               child: FittedBox(
