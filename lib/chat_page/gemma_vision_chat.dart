@@ -1,21 +1,27 @@
 // lib/chat_page/chat_page.dart
+// Patched to avoid LateInitializationError by eagerly constructing
+// _tts and _streamingTts; also null‑aware dispose of services in case
+// bootstrap fails early.
+
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
-import 'package:gemma_chat/chat_page/widgets/prompt_bar.dart';
+import 'widgets/prompt_bar.dart';
 
 import 'services/bootstrap_manager.dart';
-import 'services/streaming_tts_service.dart';
 import 'services/camera_service.dart';
 import 'services/chat_helpers.dart';
 import 'services/speech_service.dart';
-import 'models/message_models.dart';
+import 'services/streaming_tts_service.dart';
 import 'models/camera_context.dart';
-import 'handlers/keyboard_handler.dart';
+import 'models/message_models.dart';
 import 'handlers/initialization_handler.dart';
+import 'handlers/keyboard_handler.dart';
 import 'widgets/chat_ui_builder.dart';
 import 'widgets/settings_dialog.dart';
+import 'config/system_prompts.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({Key? key}) : super(key: key);
@@ -31,13 +37,19 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   bool _showCamera = true;
   bool _settingsVisible = false;
 
-  late FlutterTts _tts;
-  late StreamingTtsService _streamingTts;
-  late ChatHelpers _chatHelpers;
-  late SpeechService _speechService;
-  late KeyboardHandler _keyboardHandler;
+  // Eagerly create TTS objects so they are **always** initialized, even if
+  // bootstrap later fails. They will be overwritten with the instances coming
+  // from BootstrapManager, and the temporary ones are stopped/disposed.
+  late FlutterTts _tts = FlutterTts();
+  late StreamingTtsService _streamingTts = StreamingTtsService(_tts);
 
-  String _systemCtx = 'Answer immediately! Keep answers short.';
+  // These come from bootstrap – keep nullable until then.
+  ChatHelpers? _chatHelpers;
+  SpeechService? _speechService;
+  KeyboardHandler? _keyboardHandler;
+
+  // Use the specialized blind user navigation prompt by default
+  String _systemCtx = SystemPrompts.blindUserNavigation;
   PreferredBackend _backend = PreferredBackend.cpu;
 
   /* misc */
@@ -108,7 +120,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         setState: (fn) => setState(fn),
       );
 
-      // Store references from bootstrap result
+      // Stop/clean temporary instances before overwriting.
+      _streamingTts.stop();
+      _tts.stop();
+
+      // Store references from bootstrap result.
       _tts = result.tts;
       _streamingTts = result.streamingTts;
       _chatHelpers = result.chatHelpers;
@@ -128,7 +144,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           mounted: mounted,
           disposed: _disposed,
           redirectedOnError: _redirectedOnError,
-          setRedirectedOnError: (value) => _redirectedOnError = value,
+          setRedirectedOnError: (v) => _redirectedOnError = v,
         );
       }
     }
@@ -142,61 +158,54 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _slideController.dispose();
     _streamingTts.stop();
     _tts.stop();
-    _speechService.dispose();
+    _speechService?.dispose();
     _rootFocus.dispose();
     super.dispose();
   }
 
   /* ------------------------------------- camera context helper */
-  CameraContext get _cameraContext {
-    final cameraService = CameraService.instance;
-    return CameraContext.fromService(cameraService);
-  }
+  CameraContext get _cameraContext =>
+      CameraContext.fromService(CameraService.instance);
 
   /* -------------------- chat helper wrappers */
   Future<void> _newChat() async =>
-      await _chatHelpers.newChat(_msgs, _promptBarKey);
+      await _chatHelpers!.newChat(_msgs, _promptBarKey);
 
   Future<void> _captureAndSend(String prompt) async =>
-      await _chatHelpers.captureAndSend(prompt, _msgs, _cameraContext);
+      await _chatHelpers!.captureAndSend(prompt, _msgs, _cameraContext);
 
   Future<void> _sendTextOnly(String prompt) async =>
-      await _chatHelpers.sendTextOnly(prompt, _msgs);
+      await _chatHelpers!.sendTextOnly(prompt, _msgs);
 
   /* ------------------------ quick actions */
   Future<void> _quickAction1() async =>
-      _chatHelpers.quickAction1(_msgs, _cameraContext);
-
+      _chatHelpers!.quickAction1(_msgs, _cameraContext);
   Future<void> _quickAction2() async =>
-      _chatHelpers.quickAction2(_msgs, _cameraContext);
-
+      _chatHelpers!.quickAction2(_msgs, _cameraContext);
   Future<void> _quickAction3() async =>
-      _chatHelpers.quickAction3(_msgs, _cameraContext);
-
+      _chatHelpers!.quickAction3(_msgs, _cameraContext);
   Future<void> _quickAction4() async =>
-      _chatHelpers.quickAction4(_msgs, _cameraContext);
+      _chatHelpers!.quickAction4(_msgs, _cameraContext);
 
   /* -------------------------------------------------------------- build UI */
   @override
   Widget build(BuildContext context) {
-    if (_initialising) {
-      return ChatUIBuilder.buildLoadingScreen();
-    }
+    if (_initialising) return ChatUIBuilder.buildLoadingScreen();
 
     return Shortcuts(
-      shortcuts: _keyboardHandler.shortcuts,
+      shortcuts: _keyboardHandler!.shortcuts,
       child: Actions(
-        actions: _keyboardHandler.actions,
+        actions: _keyboardHandler!.actions,
         child: Focus(
           focusNode: _rootFocus,
           autofocus: true,
-          onKeyEvent: _speechService.handleFocusKey,
+          onKeyEvent: _speechService!.handleFocusKey,
           child: Scaffold(
             backgroundColor: const Color(0xFFF8F9FA),
             appBar: ChatUIBuilder.buildCleanAppBar(
               onNewChat: _newChat,
               onToggleSettings: _toggleSettings,
-              isResetting: _chatHelpers.resetting,
+              isResetting: _chatHelpers!.resetting,
             ),
             body: FadeTransition(
               opacity: _fadeAnimation,
@@ -204,7 +213,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 position: _slideAnimation,
                 child: Column(
                   children: [
-                    /* View toggle buttons */
+                    /* View toggles */
                     ChatUIBuilder.buildViewToggleButtons(
                       showCamera: _showCamera,
                       showMessages: _showMessages,
@@ -246,12 +255,12 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       onPromptWithPhoto: _captureAndSend,
                       onPromptTextOnly: _sendTextOnly,
                       disabled:
-                          _chatHelpers.resetting || _chatHelpers.isGenerating,
-                      speechEnabled: _speechService.speechEnabled,
-                      listening: _speechService.listening,
-                      onToggleListening: _speechService.toggleDictation,
-                      isGenerating: _chatHelpers.isGenerating,
-                      isSpeaking: _chatHelpers.isSpeaking,
+                          _chatHelpers!.resetting || _chatHelpers!.isGenerating,
+                      speechEnabled: _speechService!.speechEnabled,
+                      listening: _speechService!.listening,
+                      onToggleListening: _speechService!.toggleDictation,
+                      isGenerating: _chatHelpers!.isGenerating,
+                      isSpeaking: _chatHelpers!.isSpeaking,
                     ),
                   ],
                 ),
@@ -283,21 +292,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         if (mounted && !_disposed) setState(() => _settingsVisible = false);
       },
       onSave: (newCtx, newBackend) async {
-        if (mounted && !_disposed) {
-          setState(() {
-            _systemCtx = newCtx;
-            _chatHelpers.updateSystemContext(_systemCtx);
+        if (!(mounted && !_disposed)) return;
+        setState(() {
+          _systemCtx = newCtx;
+          _chatHelpers!.updateSystemContext(_systemCtx);
 
-            if (_backend != newBackend) {
-              _backend = newBackend;
-              _msgs.clear();
-              _initialising = true;
-              BootstrapManager.reset();
-              _redirectedOnError = false;
-              _bootstrap();
-            }
-          });
-        }
+          if (_backend != newBackend) {
+            _backend = newBackend;
+            _msgs.clear();
+            _initialising = true;
+            BootstrapManager.reset();
+            _redirectedOnError = false;
+            _bootstrap();
+          }
+        });
       },
     );
   }

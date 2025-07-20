@@ -4,14 +4,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../widgets/prompt_bar.dart';
+import 'sound_manager.dart';
 
 class SpeechService {
   final SpeechToText _speech = SpeechToText();
   final FlutterTts _tts;
   final VoidCallback _onStateChanged;
   final GlobalKey<PromptBarState> _promptBarKey;
-  final bool Function() _isGenerating;
 
+  bool Function()? _isGeneratingCallback;
   bool _speechEnabled = false;
   bool _listening = false;
   String _dictationText = '';
@@ -23,19 +24,24 @@ class SpeechService {
     required bool Function() isGenerating,
   }) : _tts = tts,
        _onStateChanged = onStateChanged,
-       _promptBarKey = promptBarKey,
-       _isGenerating = isGenerating;
+       _promptBarKey = promptBarKey;
 
   // Getters
   bool get speechEnabled => _speechEnabled;
   bool get listening => _listening;
 
-  /// Initialize speech recognition
+  void updateIsGeneratingCallback(bool Function() callback) {
+    _isGeneratingCallback = callback;
+  }
+
+  bool _checkIsGenerating() {
+    return _isGeneratingCallback?.call() ?? false;
+  }
+
   Future<void> initialize() async {
     try {
       _speechEnabled = await _speech.initialize(
         onStatus: (status) {
-          // Restart if recognizer auto‑stops while key still held.
           if (_listening && status == 'notListening') {
             _listenAgain();
           }
@@ -50,12 +56,26 @@ class SpeechService {
     }
   }
 
-  /// Start dictation
+  Future<void> playWooshSound() async {
+    await SoundManager.instance.playWoosh();
+  }
+
+  Future<void> announceMessageType(bool hasPhoto) async {
+    try {
+      final message = hasPhoto
+          ? "Sending text with photo"
+          : "Sending text only";
+      await _tts.speak(message);
+    } catch (e) {
+      debugPrint('Error announcing message type: $e');
+    }
+  }
+
   Future<void> startDictation() async {
-    if (!_speechEnabled || _isGenerating()) return;
+    if (!_speechEnabled || _checkIsGenerating()) return;
 
     if (!_listening) {
-      _dictationText = ''; // new session
+      _dictationText = '';
       _listening = true;
       _onStateChanged();
     }
@@ -64,7 +84,6 @@ class SpeechService {
     _listenAgain();
   }
 
-  /// Stop dictation
   Future<void> stopDictation() async {
     if (!_listening) return;
     _click();
@@ -76,11 +95,9 @@ class SpeechService {
     _onStateChanged();
   }
 
-  /// Toggle dictation on/off
   Future<void> toggleDictation() async =>
       _listening ? stopDictation() : startDictation();
 
-  /// Start listening again (internal)
   void _listenAgain() {
     _speech.listen(
       onResult: (val) {
@@ -99,10 +116,8 @@ class SpeechService {
     );
   }
 
-  /// Play click sound
   void _click() => SystemSound.play(SystemSoundType.click);
 
-  /// Handle F2 key events for push-to-talk
   KeyEventResult handleFocusKey(FocusNode _, KeyEvent e) {
     if (e.logicalKey == LogicalKeyboardKey.f2) {
       if (e is KeyDownEvent) {
@@ -116,7 +131,6 @@ class SpeechService {
     return KeyEventResult.ignored;
   }
 
-  /// Dispose resources
   void dispose() {
     _speech.stop();
     _speech.cancel();

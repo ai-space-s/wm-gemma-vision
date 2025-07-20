@@ -171,12 +171,12 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
 
   Widget _buildModernButton({
     required String label,
-    required IconData icon,
     required VoidCallback? onPressed,
     required List<Color> gradientColors,
     bool isExpanded = true,
     bool showPulse = false,
     bool isEnabled = true,
+    IconData? icon,
   }) {
     Widget button = AnimatedBuilder(
       animation: showPulse ? _pulseAnimation : _scaleAnimation,
@@ -230,7 +230,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                               ),
                             ),
                           )
-                        else
+                        else if (icon != null)
                           Icon(
                             icon,
                             color: isEnabled
@@ -238,14 +238,15 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                                 : Colors.grey.shade600,
                             size: 22,
                           ),
-                        const SizedBox(width: 12),
+                        if (icon != null && !_sending)
+                          const SizedBox(width: 12),
                         Text(
                           label,
                           style: TextStyle(
                             color: isEnabled
                                 ? Colors.white
                                 : Colors.grey.shade600,
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -338,8 +339,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
             children: [
               /* Text only button */
               _buildModernButton(
-                label: 'Text Only',
-                icon: Icons.send_rounded,
+                label: 'Send Text Only',
                 onPressed: (disabled || !hasText)
                     ? null
                     : () => _sendText(_ctrl.text),
@@ -354,8 +354,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
 
               /* With photo button */
               _buildModernButton(
-                label: 'With Photo',
-                icon: Icons.camera_alt_rounded,
+                label: 'Send with Photo',
                 onPressed: (disabled || !hasText)
                     ? null
                     : () => _sendWithPhoto(_ctrl.text),

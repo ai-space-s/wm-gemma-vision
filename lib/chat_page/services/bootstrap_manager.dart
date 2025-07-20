@@ -124,10 +124,30 @@ class BootstrapManager {
         throw BootstrapException("Widget not mounted");
       }
 
-      // Initialize chat helpers
+      // Initialize speech service first (needed for chat helpers)
+      final speechService = SpeechService(
+        tts: tts,
+        onStateChanged: () {
+          if (isMounted() && !isDisposed()) setState(() {});
+        },
+        promptBarKey: promptBarKey,
+        isGenerating: () =>
+            false, // Will be updated after chatHelpers is created
+      );
+      await speechService.initialize();
+
+      if (!isMounted() || isDisposed()) {
+        debugPrint("[BootstrapManager] Not mounted after speech init");
+        _globalBootstrapCompleter!.complete();
+        throw BootstrapException("Widget not mounted");
+      }
+      debugPrint("[BootstrapManager] Speech service initialized");
+
+      // Initialize chat helpers with speech service
       final chatHelpers = ChatHelpers(
         service: GemmaService.instance,
         streamingTts: streamingTts,
+        speechService: speechService, // Add the speech service here
         onStateChanged: () {
           if (isMounted() && !isDisposed()) setState(() {});
         },
@@ -142,23 +162,8 @@ class BootstrapManager {
       );
       debugPrint("[BootstrapManager] Chat helpers initialized");
 
-      // Initialize speech service
-      final speechService = SpeechService(
-        tts: tts,
-        onStateChanged: () {
-          if (isMounted() && !isDisposed()) setState(() {});
-        },
-        promptBarKey: promptBarKey,
-        isGenerating: () => chatHelpers.isGenerating,
-      );
-      await speechService.initialize();
-
-      if (!isMounted() || isDisposed()) {
-        debugPrint("[BootstrapManager] Not mounted after speech init");
-        _globalBootstrapCompleter!.complete();
-        throw BootstrapException("Widget not mounted");
-      }
-      debugPrint("[BootstrapManager] Speech service initialized");
+      // Update speech service's isGenerating callback now that chatHelpers exists
+      speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
 
       // Initialize keyboard handler
       final keyboardHandler = KeyboardHandler(

@@ -1,49 +1,78 @@
 // lib/chat_page/services/chat_helpers.dart
-import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
+// Patched version – listens to StreamingTtsService.isSpeaking so the UI
+// updates the moment speech ends, fixing the stuck‑banner bug.
 
-import '../models/message_models.dart';
+import 'dart:io';
+
+import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
+
 import '../models/camera_context.dart';
+import '../models/message_models.dart';
 import '../widgets/prompt_bar.dart';
+import '../config/system_prompts.dart';
 import 'gemma_service.dart';
+import 'speech_service.dart';
 import 'streaming_tts_service.dart';
 
 class ChatHelpers {
+  // ---------------------------------------------------------------------------
+  // Dependencies – injected from caller
+  // ---------------------------------------------------------------------------
   final GemmaService _service;
   final StreamingTtsService _streamingTts;
-  final VoidCallback _onStateChanged;
+  final SpeechService _speechService;
+  final VoidCallback _onStateChanged; // typically calls setState in a page
   final Function(String) _showSnackBar;
 
+  // ---------------------------------------------------------------------------
+  // Mutable state
+  // ---------------------------------------------------------------------------
   String _systemCtx;
   bool _resetting = false;
   bool _isGenerating = false;
-  bool _isSpeaking = false;
 
+  // ---------------------------------------------------------------------------
+  // Construction
+  // ---------------------------------------------------------------------------
   ChatHelpers({
     required GemmaService service,
     required StreamingTtsService streamingTts,
+    required SpeechService speechService,
     required VoidCallback onStateChanged,
     required Function(String) showSnackBar,
     required String systemContext,
   }) : _service = service,
        _streamingTts = streamingTts,
+       _speechService = speechService,
        _onStateChanged = onStateChanged,
        _showSnackBar = showSnackBar,
-       _systemCtx = systemContext;
-
-  // Getters for state
-  bool get resetting => _resetting;
-  bool get isGenerating => _isGenerating;
-  bool get isSpeaking => _isSpeaking;
-  String get systemContext => _systemCtx;
-
-  // Setters for state
-  void updateSystemContext(String newContext) {
-    _systemCtx = newContext;
+       _systemCtx = systemContext {
+    // 🔑  Whenever TTS starts or stops talking, refresh UI so the banner shows/hides.
+    _streamingTts.isSpeaking.addListener(_onStateChanged);
   }
 
-  /// Starts a new chat session
+  // Call from a dispose method in your widget to avoid leaks.
+  void dispose() {
+    _streamingTts.isSpeaking.removeListener(_onStateChanged);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public read‑only flags for widgets
+  // ---------------------------------------------------------------------------
+  bool get resetting => _resetting;
+  bool get isGenerating => _isGenerating;
+  bool get isSpeaking => _streamingTts.isSpeaking.value;
+  String get systemContext => _systemCtx;
+
+  // ---------------------------------------------------------------------------
+  // Mutating helpers
+  // ---------------------------------------------------------------------------
+  void updateSystemContext(String newContext) => _systemCtx = newContext;
+
+  // ---------------------------------------------------------------------------
+  // Chat lifecycle helpers
+  // ---------------------------------------------------------------------------
   Future<void> newChat(
     List<ChatMessage> messages,
     GlobalKey<PromptBarState>? promptBarKey,
@@ -64,7 +93,9 @@ class ChatHelpers {
     _showSnackBar('New chat started');
   }
 
-  /// Captures an image and sends it with a prompt (simplified for phone camera only)
+  // ---------------------------------------------------------------------------
+  // Message‑sending helpers
+  // ---------------------------------------------------------------------------
   Future<void> captureAndSend(
     String prompt,
     List<ChatMessage> messages,
@@ -77,13 +108,18 @@ class ChatHelpers {
     }
 
     try {
+      await _speechService.playWooshSound();
+      await _speechService.announceMessageType(true);
+      await Future.delayed(const Duration(milliseconds: 200));
+
       _isGenerating = true;
-      _isSpeaking = false;
       _onStateChanged();
 
+      await _streamingTts.startLoading();
       final img = await _safeTakePicture(cameraContext.camera);
 
       if (img == null) {
+        await _streamingTts.stopLoading();
         messages.add(ChatMessage('Camera busy; try again…', isUser: false));
         _isGenerating = false;
         _onStateChanged();
@@ -97,47 +133,41 @@ class ChatHelpers {
       messages.add(aiMsg);
       _onStateChanged();
 
-      String prev = '';
-      bool first = false;
-
       await _service.sendWithStreaming(
         text: '$_systemCtx\nUser: $prompt',
         image: img,
         onToken: (tok) {
-          if (!first) {
-            first = true;
-            _isSpeaking = true;
-            _onStateChanged();
-          }
-          _streamingTts.addText(tok, prev);
-          prev = tok;
+          _streamingTts.addText(tok, aiMsg.text);
           aiMsg.text = tok;
           _onStateChanged();
         },
-        onComplete: (stats) {
+        onComplete: (stats) async {
           aiMsg
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
-          _isSpeaking = false;
+          await _streamingTts.onMessageComplete();
           _onStateChanged();
         },
       );
     } catch (e) {
+      await _streamingTts.stopLoading();
       messages.add(ChatMessage('Error: $e', isUser: false));
       _isGenerating = false;
-      _isSpeaking = false;
       _onStateChanged();
     }
   }
 
-  /// Sends a text-only message
   Future<void> sendTextOnly(String prompt, List<ChatMessage> messages) async {
     try {
+      await _speechService.playWooshSound();
+      await _speechService.announceMessageType(false);
+      await Future.delayed(const Duration(milliseconds: 200));
+
       _isGenerating = true;
-      _isSpeaking = false;
       _onStateChanged();
 
+      await _streamingTts.startLoading();
       messages.add(ChatMessage(prompt, isUser: true));
       _onStateChanged();
 
@@ -145,50 +175,36 @@ class ChatHelpers {
       messages.add(aiMsg);
       _onStateChanged();
 
-      String prev = '';
-      bool first = false;
-
       await _service.sendWithStreaming(
         text: '$_systemCtx\nUser: $prompt',
         onToken: (tok) {
-          if (!first) {
-            first = true;
-            _isSpeaking = true;
-            _onStateChanged();
-          }
-          _streamingTts.addText(tok, prev);
-          prev = tok;
+          _streamingTts.addText(tok, aiMsg.text);
           aiMsg.text = tok;
           _onStateChanged();
         },
-        onComplete: (stats) {
+        onComplete: (stats) async {
           aiMsg
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
-          _isSpeaking = false;
+          await _streamingTts.onMessageComplete();
           _onStateChanged();
         },
       );
     } catch (e) {
+      await _streamingTts.stopLoading();
       messages.add(ChatMessage('Error: $e', isUser: false));
       _isGenerating = false;
-      _isSpeaking = false;
       _onStateChanged();
     }
   }
 
-  /// Safely takes a picture with the camera
+  // ---------------------------------------------------------------------------
+  // Camera helper
+  // ---------------------------------------------------------------------------
   Future<File?> _safeTakePicture(CameraController? camera) async {
-    if (camera == null || !camera.value.isInitialized) {
-      return null;
-    }
-
-    // Check if camera is already taking a picture
-    if (camera.value.isTakingPicture) {
-      debugPrint('Camera is already taking a picture');
-      return null;
-    }
+    if (camera == null || !camera.value.isInitialized) return null;
+    if (camera.value.isTakingPicture) return null;
 
     try {
       final x = await camera.takePicture();
@@ -199,32 +215,15 @@ class ChatHelpers {
     }
   }
 
-  /// Quick action helpers (simplified - phone camera only)
-  Future<void> quickAction1(
-    List<ChatMessage> messages,
-    CameraContext cameraContext,
-  ) async {
-    await captureAndSend('Describe the room', messages, cameraContext);
-  }
-
-  Future<void> quickAction2(
-    List<ChatMessage> messages,
-    CameraContext cameraContext,
-  ) async {
-    await captureAndSend('Tell me what you see', messages, cameraContext);
-  }
-
-  Future<void> quickAction3(
-    List<ChatMessage> messages,
-    CameraContext cameraContext,
-  ) async {
-    await captureAndSend('Find an exit', messages, cameraContext);
-  }
-
-  Future<void> quickAction4(
-    List<ChatMessage> messages,
-    CameraContext cameraContext,
-  ) async {
-    await captureAndSend('Read text', messages, cameraContext);
-  }
+  // ---------------------------------------------------------------------------
+  // Quick actions – convenience wrappers using system prompts
+  // ---------------------------------------------------------------------------
+  Future<void> quickAction1(List<ChatMessage> m, CameraContext c) async =>
+      captureAndSend(SystemPrompts.describeRoom, m, c);
+  Future<void> quickAction2(List<ChatMessage> m, CameraContext c) async =>
+      captureAndSend(SystemPrompts.tellMeWhatYouSee, m, c);
+  Future<void> quickAction3(List<ChatMessage> m, CameraContext c) async =>
+      captureAndSend(SystemPrompts.findExit, m, c);
+  Future<void> quickAction4(List<ChatMessage> m, CameraContext c) async =>
+      captureAndSend(SystemPrompts.readText, m, c);
 }
