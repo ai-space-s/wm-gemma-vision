@@ -1,5 +1,6 @@
 // lib/chat_page/services/camera_service.dart
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -9,7 +10,6 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
   /* ---------------------------------------------------------------- static */
   static CameraService? _instance;
   static CameraService get instance {
-    // Create new instance if disposed or null
     if (_instance == null || _instance!._disposed) {
       debugPrint('[CameraService] Creating new instance');
       _instance = CameraService._internal();
@@ -19,28 +19,22 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
 
   /* -------------------------------------------------------------- lifecycle */
   CameraService._internal() {
-    WidgetsBinding.instance.addObserver(this); // NEW
+    WidgetsBinding.instance.addObserver(this);
     debugPrint('[CameraService] Service created');
   }
 
-  // App lifecycle → release / renew camera
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // NEW
     if (_disposed) return;
 
     switch (state) {
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
-        // Release the hardware while in background
-        _cleanupCamera();
+        _cleanupCamera(); // release while in background
         break;
-
       case AppLifecycleState.resumed:
-        // Re‑create controller & restart preview
-        restart();
+        restart(); // bring it back
         break;
-
       default:
         break;
     }
@@ -54,7 +48,7 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
   /* ------------------------------------------------------------ bookkeeping */
   bool _isInitializing = false;
   bool _disposed = false;
-  Completer<void>? _initCompleter; // Synchronise initialise()
+  Completer<void>? _initCompleter;
 
   /* --------------------------------------------------------------- getters */
   CameraController? get camera => _camera;
@@ -69,11 +63,25 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
 
     if (_isInitializing) {
-      // Wait for ongoing init
       return _initCompleter?.future ?? Future.value();
     }
 
     await _initializePhoneCamera();
+  }
+
+  /// Waits until the app is RESUMED (crucial for iOS) and one frame rendered.
+  Future<void> _ensureForegroundReady() async {
+    if (!Platform.isIOS) return; // Android unaffected
+
+    while (WidgetsBinding.instance.lifecycleState !=
+        AppLifecycleState.resumed) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+
+    // Ensure at least one frame has been drawn – avoids AVFoundation race.
+    final completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) => completer.complete());
+    await completer.future;
   }
 
   Future<void> _initializePhoneCamera() async {
@@ -87,22 +95,22 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
     _initCompleter = Completer<void>();
 
     try {
-      debugPrint('[CameraService] Starting camera initialization…');
+      await _ensureForegroundReady(); // <-- NEW
 
-      // Clean existing controller
+      debugPrint('[CameraService] Starting camera initialization…');
       await _cleanupCamera();
 
       final cameras = await availableCameras();
       if (cameras.isEmpty) throw Exception('No cameras available');
 
-      final camera = cameras.firstWhere(
+      final description = cameras.firstWhere(
         (cam) => cam.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
 
       _camera = CameraController(
-        camera,
-        ResolutionPreset.medium,
+        description,
+        ResolutionPreset.max,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
@@ -133,13 +141,13 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
 
     if (_camera!.value.hasError) {
       debugPrint(
-        '[CameraService] Camera error detected: ${_camera!.value.errorDescription}',
+        '[CameraService] Runtime camera error: '
+        '${_camera!.value.errorDescription}',
       );
       _cameraError = true;
       _cameraInitialized = false;
       _safeNotifyListeners();
 
-      // Try to restart after delay
       Future.delayed(const Duration(seconds: 2), () {
         if (!_disposed && _cameraError) restart();
       });
@@ -190,24 +198,21 @@ class CameraService extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     if (_disposed) return;
 
-    WidgetsBinding.instance.removeObserver(this); // NEW
+    WidgetsBinding.instance.removeObserver(this);
     debugPrint('[CameraService] Disposing service…');
     _disposed = true;
 
-    // Complete any pending operations
     if (_initCompleter != null && !_initCompleter!.isCompleted) {
       _initCompleter!.complete();
     }
     _initCompleter = null;
 
-    // Camera cleanup (fire‑and‑forget)
     _cleanupCamera().catchError((e) {
       debugPrint('[CameraService] Error during disposal: $e');
     });
 
     super.dispose();
 
-    // Allow new instance later
     if (_instance == this) _instance = null;
   }
 }
