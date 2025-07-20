@@ -408,10 +408,6 @@ class DownloadPageLogic {
             timer.cancel();
             _monitoringTimer = null;
             break;
-
-          default:
-            Logger.debug('Unknown status ${task.status} for task: $taskId');
-            break;
         }
       } catch (e) {
         Logger.error('Error monitoring download: $e');

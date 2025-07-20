@@ -14,7 +14,6 @@ class KeyboardHandler {
   final BuildContext _context;
   final GlobalKey<PromptBarState> _promptBarKey;
   final VoidCallback _onToggleMessages;
-  final VoidCallback _onToggleCamera;
   final VoidCallback _onToggleSettings;
   final VoidCallback _onNewChat;
   final VoidCallback _onQuickAction1;
@@ -36,7 +35,6 @@ class KeyboardHandler {
   }) : _context = context,
        _promptBarKey = promptBarKey,
        _onToggleMessages = onToggleMessages,
-       _onToggleCamera = onToggleCamera,
        _onToggleSettings = onToggleSettings,
        _onNewChat = onNewChat,
        _onQuickAction1 = onQuickAction1,
