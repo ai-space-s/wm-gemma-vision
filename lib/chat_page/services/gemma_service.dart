@@ -1,7 +1,6 @@
-// services/gemma_service.dart
+// services/gemma_service.dart - Further Optimized Version
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter_gemma/core/chat.dart';
 import 'package:flutter_gemma/core/model.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
@@ -45,13 +44,36 @@ class GemmaService {
       topK: 64,
       topP: 0.95,
       supportImage: true,
-      tokenBuffer: 256,
+      tokenBuffer: 512,
     );
 
     _initialised = true;
   }
 
-  /// Send message with callback-based streaming
+  /// 🔑 ULTRA-OPTIMIZED: Return the raw token stream instead of processing it
+  /// This eliminates the intermediate callback layer for maximum performance
+  Future<Stream<String>> sendWithStreamingDirect({
+    required String text,
+    File? image,
+  }) async {
+    // Add the query
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      await _chat!.addQuery(
+        Message.withImage(text: text, imageBytes: bytes, isUser: true),
+      );
+    } else {
+      await _chat!.addQuery(Message.text(text: text, isUser: true));
+    }
+
+    // 🔑 Return raw stream of tokens - let caller handle throttling
+    return _chat!
+        .generateChatResponseAsync()
+        .where((res) => res is TextResponse)
+        .map((res) => (res as TextResponse).token);
+  }
+
+  /// Legacy callback-based method (kept for compatibility)
   Future<void> sendWithStreaming({
     required String text,
     File? image,
@@ -61,34 +83,32 @@ class GemmaService {
     final startTime = DateTime.now();
     DateTime? firstTokenTime;
     int tokenCount = 0;
-    final tokens = <String>[];
+    final responseBuffer = StringBuffer();
 
-    // Add the query
     if (image != null) {
       final bytes = await image.readAsBytes();
-      await _chat!.addQueryChunk(
+      await _chat!.addQuery(
         Message.withImage(text: text, imageBytes: bytes, isUser: true),
       );
     } else {
-      await _chat!.addQueryChunk(Message.text(text: text, isUser: true));
+      await _chat!.addQuery(Message.text(text: text, isUser: true));
     }
 
-    // Use the async streaming method from the documentation
     final completer = Completer<void>();
 
     _chat!.generateChatResponseAsync().listen(
-      (String token) {
-        if (firstTokenTime == null) {
-          firstTokenTime = DateTime.now();
+      (ModelResponse res) {
+        if (res is TextResponse) {
+          firstTokenTime ??= DateTime.now();
+          tokenCount++;
+          responseBuffer.write(res.token);
+
+          // 🔑 Send individual tokens, let caller handle throttling
+          onToken(res.token);
         }
-        tokenCount++;
-        tokens.add(token);
-        onToken(tokens.join(''));
       },
       onDone: () {
         final endTime = DateTime.now();
-
-        // Calculate statistics
         final stats = MessageStats(
           timeToFirstToken: firstTokenTime != null
               ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0
@@ -108,9 +128,7 @@ class GemmaService {
         onComplete(stats);
         completer.complete();
       },
-      onError: (error) {
-        completer.completeError(error);
-      },
+      onError: completer.completeError,
     );
 
     await completer.future;

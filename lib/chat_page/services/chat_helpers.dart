@@ -1,9 +1,7 @@
 // lib/chat_page/services/chat_helpers.dart
-// Patched version – listens to StreamingTtsService.isSpeaking so the UI
-// updates the moment speech ends, fixing the stuck‑banner bug.
+// Ultra-optimized version with throttling applied to your architecture
 
 import 'dart:io';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
@@ -16,25 +14,16 @@ import 'speech_service.dart';
 import 'streaming_tts_service.dart';
 
 class ChatHelpers {
-  // ---------------------------------------------------------------------------
-  // Dependencies – injected from caller
-  // ---------------------------------------------------------------------------
   final GemmaService _service;
   final StreamingTtsService _streamingTts;
   final SpeechService _speechService;
-  final VoidCallback _onStateChanged; // typically calls setState in a page
+  final VoidCallback _onStateChanged;
   final Function(String) _showSnackBar;
 
-  // ---------------------------------------------------------------------------
-  // Mutable state
-  // ---------------------------------------------------------------------------
   String _systemCtx;
   bool _resetting = false;
   bool _isGenerating = false;
 
-  // ---------------------------------------------------------------------------
-  // Construction
-  // ---------------------------------------------------------------------------
   ChatHelpers({
     required GemmaService service,
     required StreamingTtsService streamingTts,
@@ -48,31 +37,20 @@ class ChatHelpers {
        _onStateChanged = onStateChanged,
        _showSnackBar = showSnackBar,
        _systemCtx = systemContext {
-    // 🔑  Whenever TTS starts or stops talking, refresh UI so the banner shows/hides.
     _streamingTts.isSpeaking.addListener(_onStateChanged);
   }
 
-  // Call from a dispose method in your widget to avoid leaks.
   void dispose() {
     _streamingTts.isSpeaking.removeListener(_onStateChanged);
   }
 
-  // ---------------------------------------------------------------------------
-  // Public read‑only flags for widgets
-  // ---------------------------------------------------------------------------
   bool get resetting => _resetting;
   bool get isGenerating => _isGenerating;
   bool get isSpeaking => _streamingTts.isSpeaking.value;
   String get systemContext => _systemCtx;
 
-  // ---------------------------------------------------------------------------
-  // Mutating helpers
-  // ---------------------------------------------------------------------------
   void updateSystemContext(String newContext) => _systemCtx = newContext;
 
-  // ---------------------------------------------------------------------------
-  // Chat lifecycle helpers
-  // ---------------------------------------------------------------------------
   Future<void> newChat(
     List<ChatMessage> messages,
     GlobalKey<PromptBarState>? promptBarKey,
@@ -93,9 +71,6 @@ class ChatHelpers {
     _showSnackBar('New chat started');
   }
 
-  // ---------------------------------------------------------------------------
-  // Message‑sending helpers
-  // ---------------------------------------------------------------------------
   Future<void> captureAndSend(
     String prompt,
     List<ChatMessage> messages,
@@ -133,16 +108,34 @@ class ChatHelpers {
       messages.add(aiMsg);
       _onStateChanged();
 
+      // 🔑 ULTRA-FAST OPTIMIZATION: Use local variables for throttling
+      final responseBuffer = StringBuffer();
+      int tokenCounter = 0;
+
       await _service.sendWithStreaming(
         text: '$_systemCtx\nUser: $prompt',
         image: img,
         onToken: (tok) {
-          _streamingTts.addText(tok, aiMsg.text);
-          aiMsg.text = tok;
-          _onStateChanged();
+          // 🔑 Build response incrementally with StringBuffer
+          responseBuffer.write(tok);
+          tokenCounter++;
+
+          // 🔑 THROTTLE: Only update UI and TTS every 3 tokens (adjust as needed)
+          if (tokenCounter % 3 == 0) {
+            final currentText = responseBuffer.toString();
+            _streamingTts.addText(
+              tok,
+              aiMsg.text,
+            ); // Only process TTS occasionally
+            aiMsg.text = currentText;
+            _onStateChanged();
+          }
         },
         onComplete: (stats) async {
+          // 🔑 Final update with complete text
+          final finalText = responseBuffer.toString();
           aiMsg
+            ..text = finalText
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
@@ -175,15 +168,30 @@ class ChatHelpers {
       messages.add(aiMsg);
       _onStateChanged();
 
+      // 🔑 ULTRA-FAST OPTIMIZATION: Use local variables for throttling
+      final responseBuffer = StringBuffer();
+      int tokenCounter = 0;
+
       await _service.sendWithStreaming(
         text: '$_systemCtx\nUser: $prompt',
         onToken: (tok) {
-          _streamingTts.addText(tok, aiMsg.text);
-          aiMsg.text = tok;
-          _onStateChanged();
+          // 🔑 Build response incrementally with StringBuffer
+          responseBuffer.write(tok);
+          tokenCounter++;
+
+          // 🔑 THROTTLE: Only update UI and TTS every 3 tokens
+          if (tokenCounter % 3 == 0) {
+            final currentText = responseBuffer.toString();
+            _streamingTts.addText(tok, aiMsg.text); // Throttled TTS processing
+            aiMsg.text = currentText;
+            _onStateChanged();
+          }
         },
         onComplete: (stats) async {
+          // 🔑 Final update with complete text
+          final finalText = responseBuffer.toString();
           aiMsg
+            ..text = finalText
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
@@ -199,9 +207,6 @@ class ChatHelpers {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Camera helper
-  // ---------------------------------------------------------------------------
   Future<File?> _safeTakePicture(CameraController? camera) async {
     if (camera == null || !camera.value.isInitialized) return null;
     if (camera.value.isTakingPicture) return null;
@@ -215,9 +220,6 @@ class ChatHelpers {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Quick actions – convenience wrappers using system prompts
-  // ---------------------------------------------------------------------------
   Future<void> quickAction1(List<ChatMessage> m, CameraContext c) async =>
       captureAndSend(SystemPrompts.describeRoom, m, c);
   Future<void> quickAction2(List<ChatMessage> m, CameraContext c) async =>
