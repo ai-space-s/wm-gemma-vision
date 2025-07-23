@@ -1,18 +1,13 @@
 // lib/chat_page/widgets/chat_ui_builder.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/camera_service.dart';
 import '../models/message_models.dart';
-import 'camera_preview.dart';
 import 'chat_bubble.dart';
 import 'prompt_bar.dart';
 
-/// Updated to:
-/// • Remove **all** shadows across the UI.
-/// • Extend the orange status bar full‑width (already done in previous commit).
-/// • Add extra bottom padding beneath the generating / speaking text for breathing room.
+/// Updated to remove camera service dependency
 class ChatUIBuilder {
-  // ——————————————————— APP BAR ——————————————————— //
+  // ——————————————————— APP BAR ——————————————————— //
   static PreferredSizeWidget buildCleanAppBar({
     required VoidCallback onNewChat,
     required VoidCallback onToggleSettings,
@@ -32,16 +27,6 @@ class ChatUIBuilder {
       ),
       actions: [
         TextButton.icon(
-          onPressed: isResetting ? null : onNewChat,
-          icon: const Icon(Icons.refresh_rounded, size: 18),
-          label: const Text('New'),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.blue.shade700,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          ),
-        ),
-        const SizedBox(width: 8),
-        TextButton.icon(
           onPressed: onToggleSettings,
           icon: const Icon(Icons.tune_rounded, size: 18),
           label: const Text('Settings'),
@@ -55,12 +40,12 @@ class ChatUIBuilder {
     );
   }
 
-  // ———————————————— VIEW‑TOGGLE BUTTONS ———————————————— //
+  // ———————————————— VIEW‑TOGGLE BUTTONS ———————————————— //
   static Widget buildViewToggleButtons({
-    required bool showCamera,
     required bool showMessages,
-    required VoidCallback onToggleCamera,
     required VoidCallback onToggleMessages,
+    required VoidCallback onNewChat,
+    required bool isResetting,
   }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -68,13 +53,12 @@ class ChatUIBuilder {
         children: [
           Expanded(
             child: _buildToggleButton(
-              icon: showCamera
-                  ? Icons.videocam_off_rounded
-                  : Icons.videocam_rounded,
-              label: showCamera ? 'Hide Camera' : 'Show Camera',
-              isActive: showCamera,
+              icon: Icons.refresh_rounded,
+              label: 'New Chat',
+              isActive: false, // Always styled as inactive button
               colors: [const Color(0xFF2196F3), const Color(0xFF1976D2)],
-              onPressed: onToggleCamera,
+              onPressed: isResetting ? () {} : onNewChat,
+              disabled: isResetting,
             ),
           ),
           const SizedBox(width: 12),
@@ -87,6 +71,7 @@ class ChatUIBuilder {
               isActive: showMessages,
               colors: [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
               onPressed: onToggleMessages,
+              disabled: false,
             ),
           ),
         ],
@@ -100,38 +85,44 @@ class ChatUIBuilder {
     required bool isActive,
     required List<Color> colors,
     required VoidCallback onPressed,
+    bool disabled = false,
   }) {
     return SizedBox(
       height: 56,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onPressed,
+          onTap: disabled ? null : onPressed,
           borderRadius: BorderRadius.circular(16),
           child: Container(
             decoration: BoxDecoration(
               gradient: isActive ? LinearGradient(colors: colors) : null,
-              color: isActive ? null : Colors.white,
+              color: isActive
+                  ? null
+                  : (disabled ? Colors.grey.shade100 : Colors.white),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isActive ? Colors.transparent : Colors.grey.shade300,
                 width: 2,
               ),
-              // Shadows completely removed.
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   icon,
-                  color: isActive ? Colors.white : Colors.grey.shade700,
+                  color: disabled
+                      ? Colors.grey.shade400
+                      : (isActive ? Colors.white : Colors.grey.shade700),
                   size: 20,
                 ),
                 const SizedBox(width: 8),
                 Text(
                   label,
                   style: TextStyle(
-                    color: isActive ? Colors.white : Colors.grey.shade700,
+                    color: disabled
+                        ? Colors.grey.shade400
+                        : (isActive ? Colors.white : Colors.grey.shade700),
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),
@@ -144,24 +135,10 @@ class ChatUIBuilder {
     );
   }
 
-  // —————————————————— CAMERA PREVIEW —————————————————— //
+  // —————————————————— CAMERA PLACEHOLDER —————————————————— //
   static Widget buildCameraPreview() {
-    final cameraService = CameraService.instance;
-
-    if (cameraService.cameraInitialized &&
-        !cameraService.cameraError &&
-        cameraService.camera != null) {
-      return Container(
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(24)),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: CameraPreviewBox(camera: cameraService.camera!),
-        ),
-      );
-    }
-    return _buildCameraPlaceholder(
-      cameraService.cameraError ? 'Camera Error' : 'Camera Initializing…',
-    );
+    // Since we're using on-demand camera, just show a placeholder
+    return _buildCameraPlaceholder('Camera captures on photo messages');
   }
 
   static Widget _buildCameraPlaceholder(String msg) {
@@ -214,23 +191,32 @@ class ChatUIBuilder {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.grey.shade200, width: 2),
-        // Shadow removed.
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: messages.length,
-          itemBuilder: (_, i) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: ChatBubble(msg: messages[i]),
+        child: Semantics(
+          label: 'Chat messages',
+          hint: 'Swipe to scroll through conversation history',
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: messages.length,
+            semanticChildCount: messages.length,
+            itemBuilder: (_, i) => Semantics(
+              label: messages[i].isUser
+                  ? 'Your message ${i + 1} of ${messages.length}'
+                  : 'AI response ${i + 1} of ${messages.length}',
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: ChatBubble(msg: messages[i]),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ———————————————————— PROMPT BAR ———————————————————— //
+  // ———————————————————— PROMPT BAR ———————————————————— //
   static Widget buildPromptBarContainer({
     required GlobalKey<PromptBarState> promptBarKey,
     required Future<void> Function(String) onPromptWithPhoto,
@@ -280,7 +266,7 @@ class ChatUIBuilder {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 10), // extra bottom spacing
+        padding: const EdgeInsets.only(bottom: 10),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

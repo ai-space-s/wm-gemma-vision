@@ -8,7 +8,6 @@ import 'package:flutter_gemma/pigeon.g.dart';
 
 import 'gemma_service.dart';
 import 'streaming_tts_service.dart';
-import 'camera_service.dart';
 import 'chat_helpers.dart';
 import 'speech_service.dart';
 import '../handlers/keyboard_handler.dart';
@@ -90,39 +89,7 @@ class BootstrapManager {
         throw BootstrapException("Widget not mounted");
       }
 
-      // Initialize camera service
-      final cameraService = CameraService.instance;
-      try {
-        await cameraService.initialize();
-        cameraService.addListener(() {
-          if (isMounted() && !isDisposed()) {
-            setState(() {});
-          }
-        });
-        debugPrint("[BootstrapManager] Camera service initialized");
-      } catch (e) {
-        if (e.toString().contains('disposed')) {
-          debugPrint(
-            "[BootstrapManager] Camera service disposed, getting new instance",
-          );
-          final freshCamera = CameraService.instance;
-          await freshCamera.initialize();
-          freshCamera.addListener(() {
-            if (isMounted() && !isDisposed()) {
-              setState(() {});
-            }
-          });
-          debugPrint("[BootstrapManager] Fresh camera service initialized");
-        } else {
-          rethrow;
-        }
-      }
-
-      if (!isMounted() || isDisposed()) {
-        debugPrint("[BootstrapManager] Not mounted after camera init");
-        _globalBootstrapCompleter!.complete();
-        throw BootstrapException("Widget not mounted");
-      }
+      // NO CAMERA SERVICE INITIALIZATION - using on-demand camera now
 
       // Initialize speech service first (needed for chat helpers)
       final speechService = SpeechService(
@@ -147,7 +114,7 @@ class BootstrapManager {
       final chatHelpers = ChatHelpers(
         service: GemmaService.instance,
         streamingTts: streamingTts,
-        speechService: speechService, // Add the speech service here
+        speechService: speechService,
         onStateChanged: () {
           if (isMounted() && !isDisposed()) setState(() {});
         },

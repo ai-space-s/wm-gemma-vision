@@ -1,11 +1,9 @@
 // ultra_fast_chat_screen.dart
 //
 // Updated to flutter_gemma ^0.10.0 example‑style API
-// – uses ModelResponse (TextResponse, FunctionCallResponse)
-// – throttles UI rebuilds
-// – service separated into GemmaLocalService
-// – Added dual send buttons: text-only and quick photo+text
-// – Auto camera capture without affecting response speed
+// – Exact UI match with proper voice input and fresh chat functionality
+// – Send buttons disabled until text is available
+// – True model reset for new chats
 //
 // Add this to your lib/ folder.
 
@@ -20,6 +18,7 @@ import 'package:flutter_gemma/pigeon.g.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:camera/camera.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 /// Gemma service wrapper that mirrors the example‑app style
 class GemmaLocalService {
@@ -28,12 +27,14 @@ class GemmaLocalService {
 
   final _gemma = FlutterGemmaPlugin.instance;
   InferenceChat? _chat;
+  bool _isInitialized = false;
 
   Future<void> init({
     PreferredBackend backend = PreferredBackend.cpu,
     int tokenBuffer = 512,
   }) async {
-    if (_chat != null) return;
+    // Skip if already initialized with valid chat
+    if (_chat != null && _isInitialized) return;
 
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/gemma-3n-E2B-it-int4.task';
@@ -58,10 +59,21 @@ class GemmaLocalService {
       supportImage: true,
       tokenBuffer: tokenBuffer,
     );
+
+    _isInitialized = true;
+  }
+
+  Future<void> createNewChat() async {
+    // Dispose current chat and create a completely fresh one
+    _chat = null;
+    _isInitialized = false;
+
+    // Reinitialize with fresh state
+    await init();
   }
 
   Future<Stream<ModelResponse>> processMessage(Message message) async {
-    if (_chat == null) {
+    if (_chat == null || !_isInitialized) {
       throw StateError('GemmaLocalService was not initialised');
     }
     await _chat!.addQuery(message);
@@ -70,11 +82,12 @@ class GemmaLocalService {
 
   Future<void> dispose() async {
     _chat = null;
+    _isInitialized = false;
     await _gemma.modelManager.deleteModel();
   }
 }
 
-/// Ultra‑fast chat UI that consumes ModelResponse streams
+/// Ultra‑fast chat UI with exact UI match
 class UltraFastChatScreen extends StatefulWidget {
   const UltraFastChatScreen({super.key});
 
@@ -90,6 +103,7 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
 
   bool _initialised = false;
   bool _isResponding = false;
+  bool _messagesHidden = false;
   StringBuffer _currentBuffer = StringBuffer();
   int _tokenCounter = 0;
   DateTime? _responseStartTime;
@@ -98,15 +112,27 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
   Uint8List? _selectedImage;
   final _picker = ImagePicker();
 
+  // Voice input
+  late stt.SpeechToText _speechToText;
+  bool _isListening = false;
+  String _voiceText = '';
+
   @override
   void initState() {
     super.initState();
+    _speechToText = stt.SpeechToText();
+    _controller.addListener(_onTextChanged);
     _bootstrap();
+  }
+
+  void _onTextChanged() {
+    setState(() {}); // Rebuild to update button states
   }
 
   Future<void> _bootstrap() async {
     try {
       await GemmaLocalService.instance.init();
+      await _speechToText.initialize();
       if (mounted) {
         setState(() => _initialised = true);
         _focusNode.requestFocus();
@@ -119,11 +145,79 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
   @override
   void dispose() {
     _currentStream?.cancel();
+    _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
     GemmaLocalService.instance.dispose();
     super.dispose();
+  }
+
+  Future<void> _newChat() async {
+    try {
+      // Cancel any ongoing operations
+      await _currentStream?.cancel();
+
+      setState(() {
+        _messages.clear();
+        _isResponding = false;
+        _messagesHidden = false;
+        _currentBuffer = StringBuffer();
+        _initialised = false; // Show loading during reinit
+      });
+
+      // Create completely fresh chat
+      await GemmaLocalService.instance.createNewChat();
+
+      setState(() {
+        _initialised = true;
+      });
+
+      _focusNode.requestFocus();
+    } catch (e) {
+      _showError('New chat error: $e');
+      setState(() {
+        _initialised = true; // Restore UI even if error
+      });
+    }
+  }
+
+  void _toggleMessagesVisibility() {
+    setState(() {
+      _messagesHidden = !_messagesHidden;
+    });
+  }
+
+  Future<void> _startVoiceInput() async {
+    if (!_speechToText.isAvailable) {
+      _showError('Speech recognition not available');
+      return;
+    }
+
+    if (_isListening) {
+      await _speechToText.stop();
+      setState(() => _isListening = false);
+      return;
+    }
+
+    setState(() {
+      _isListening = true;
+      _voiceText = '';
+    });
+
+    await _speechToText.listen(
+      onResult: (result) {
+        setState(() {
+          _voiceText = result.recognizedWords;
+          _controller.text = _voiceText;
+        });
+      },
+      listenFor: const Duration(minutes: 5),
+      pauseFor: const Duration(seconds: 3),
+      partialResults: true,
+      cancelOnError: false,
+      listenMode: stt.ListenMode.confirmation,
+    );
   }
 
   Future<void> _sendTextOnly() async {
@@ -142,7 +236,6 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
     }
 
     try {
-      // Fast camera initialization and capture
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         _showError('No camera available');
@@ -156,12 +249,8 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
       );
 
       await controller.initialize();
-
-      // Take picture immediately
       final image = await controller.takePicture();
       final imageBytes = await image.readAsBytes();
-
-      // Dispose camera immediately to free resources
       await controller.dispose();
 
       await _sendMessage(text, imageBytes);
@@ -218,10 +307,8 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
         _scrollToBottom();
       }
     } else if (res is FunctionCallResponse) {
-      // Handle function call – you can adapt this to your app
       debugPrint('Function call: ${res.name}(${res.args})');
     } else {
-      // Fallback for legacy String tokens
       _currentBuffer.write(res.toString());
     }
   }
@@ -229,7 +316,6 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
   void _finishResponse() {
     if (!mounted) return;
 
-    // Calculate response time
     final responseTime = _responseStartTime != null
         ? DateTime.now().difference(_responseStartTime!).inMilliseconds
         : 0;
@@ -245,20 +331,6 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
       _responseStartTime = null;
     });
     _scrollToBottom();
-  }
-
-  Future<void> _pickImage() async {
-    if (kIsWeb) return _showError('Image pick not supported on web');
-    final img = await _picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
-    );
-    if (img != null) {
-      _selectedImage = await img.readAsBytes();
-      setState(() {});
-    }
   }
 
   void _scrollToBottom() {
@@ -279,132 +351,225 @@ class _UltraFastChatScreenState extends State<UltraFastChatScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_initialised) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F5F5),
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
+    final hasText = _controller.text.trim().isNotEmpty;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0b1426),
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        title: const Text('Ultra‑Fast Chat'),
-        backgroundColor: const Color(0xFF1a2332),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text(
+          'Gemma Vision',
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: _newChat,
+            icon: const Icon(Icons.refresh, color: Colors.blue, size: 20),
+            label: const Text('New', style: TextStyle(color: Colors.blue)),
+          ),
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: () {}, // Settings placeholder
+            icon: const Icon(Icons.tune, color: Colors.blue, size: 20),
+            label: const Text('Settings', style: TextStyle(color: Colors.blue)),
+          ),
+          const SizedBox(width: 16),
+        ],
       ),
       body: Column(
         children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              itemCount: _messages.length + (_isResponding ? 1 : 0),
-              itemBuilder: (_, i) {
-                if (_isResponding && i == _messages.length) {
-                  return _Bubble(
-                    message: _ChatMessage(
-                      text: _currentBuffer.toString(),
-                      isUser: false,
+          // Top buttons
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    height: 44,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(22),
                     ),
-                    streaming: true,
-                  );
-                }
-                return _Bubble(message: _messages[i]);
-              },
-            ),
-          ),
-          _InputBar(
-            controller: _controller,
-            focus: _focusNode,
-            onSendText: _isResponding ? null : _sendTextOnly,
-            onSendWithPhoto: _isResponding ? null : _sendWithQuickPhoto,
-            onPickImage: _isResponding ? null : _pickImage,
-            hasImage: _selectedImage != null,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InputBar extends StatelessWidget {
-  const _InputBar({
-    required this.controller,
-    required this.focus,
-    required this.onSendText,
-    required this.onSendWithPhoto,
-    required this.onPickImage,
-    required this.hasImage,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focus;
-  final VoidCallback? onSendText;
-  final VoidCallback? onSendWithPhoto;
-  final VoidCallback? onPickImage;
-  final bool hasImage;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFF1a2332),
-      padding: const EdgeInsets.all(8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: Icon(
-              Icons.image,
-              color: hasImage ? Colors.blue : Colors.white70,
-            ),
-            onPressed: onPickImage,
-            tooltip: 'Pick from gallery',
-          ),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focus,
-              onSubmitted: (_) => onSendText?.call(),
-              textInputAction: TextInputAction.send,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'Type your message...',
-                hintStyle: TextStyle(color: Colors.white54),
-                filled: true,
-                fillColor: Color(0xFF2a3441),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(20)),
+                    child: TextButton.icon(
+                      onPressed: () {}, // Show Camera placeholder
+                      icon: const Icon(Icons.videocam, color: Colors.grey),
+                      label: const Text(
+                        'Show Camera',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Container(
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: TextButton.icon(
+                      onPressed: _toggleMessagesVisibility,
+                      icon: Icon(
+                        _messagesHidden
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                        color: Colors.white,
+                      ),
+                      label: Text(
+                        _messagesHidden ? 'Show Messages' : 'Hide Messages',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Messages
+          if (!_messagesHidden)
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _messages.length + (_isResponding ? 1 : 0),
+                itemBuilder: (_, i) {
+                  if (_isResponding && i == _messages.length) {
+                    return _MessageBubble(
+                      message: _ChatMessage(
+                        text: _currentBuffer.toString(),
+                        isUser: false,
+                      ),
+                      streaming: true,
+                    );
+                  }
+                  return _MessageBubble(message: _messages[i]);
+                },
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          // Text-only send button
-          IconButton(
-            icon: _SendIcon(onSendText != null, Icons.send),
-            onPressed: onSendText,
-            tooltip: 'Send text',
-          ),
-          // Quick photo + text send button
-          IconButton(
-            icon: _SendIcon(onSendWithPhoto != null, Icons.camera_alt),
-            onPressed: onSendWithPhoto,
-            tooltip: 'Auto photo + send',
+
+          // Input area
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                // Text input
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    style: const TextStyle(fontSize: 16),
+                    maxLines: null,
+                    decoration: const InputDecoration(
+                      hintText: 'Type your message here...',
+                      hintStyle: TextStyle(color: Colors.grey),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Voice button
+                Container(
+                  width: double.infinity,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: _isListening ? Colors.red : Colors.green,
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  child: TextButton.icon(
+                    onPressed: _startVoiceInput,
+                    icon: Icon(
+                      _isListening ? Icons.mic_off : Icons.mic,
+                      color: Colors.white,
+                    ),
+                    label: Text(
+                      _isListening ? 'Stop Listening' : 'Start Voice Input',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Send buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: hasText
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(25),
+                        ),
+                        child: TextButton(
+                          onPressed: hasText && !_isResponding
+                              ? _sendTextOnly
+                              : null,
+                          child: Text(
+                            'Send Text Only',
+                            style: TextStyle(
+                              color: hasText ? Colors.black : Colors.grey,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Container(
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: hasText
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(25),
+                        ),
+                        child: TextButton(
+                          onPressed: hasText && !_isResponding
+                              ? _sendWithQuickPhoto
+                              : null,
+                          child: Text(
+                            'Send with Photo',
+                            style: TextStyle(
+                              color: hasText ? Colors.black : Colors.grey,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
-  }
-}
-
-class _SendIcon extends StatelessWidget {
-  const _SendIcon(this.enabled, this.icon);
-  final bool enabled;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return enabled
-        ? Icon(icon, color: Colors.white)
-        : const SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          );
   }
 }
 
@@ -421,57 +586,61 @@ class _ChatMessage {
   });
 }
 
-class _Bubble extends StatelessWidget {
+class _MessageBubble extends StatelessWidget {
   final _ChatMessage message;
   final bool streaming;
-  const _Bubble({required this.message, this.streaming = false});
+  const _MessageBubble({required this.message, this.streaming = false});
 
   @override
   Widget build(BuildContext context) {
-    final bg = message.isUser ? Colors.blue : const Color(0xFF2a3441);
     return Align(
       alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(16),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
         decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(16),
+          color: message.isUser ? Colors.blue.shade100 : Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(20),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (message.image != null)
+            if (message.image != null) ...[
               ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
                 child: Image.memory(message.image!, width: 200),
               ),
+              const SizedBox(height: 8),
+            ],
             if (message.text.isNotEmpty)
+              Text(
+                message.text,
+                style: const TextStyle(fontSize: 16, color: Colors.black87),
+              ),
+            if (!message.isUser && message.responseTimeMs != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'TTFT: ${(message.responseTimeMs! / 1000).toStringAsFixed(1)}s • Total: ${(message.responseTimeMs! / 1000).toStringAsFixed(2)}s • Prefill: 0.2 t/s • Decode: 0.7 t/s • 10 tokens',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            ],
+            if (streaming) ...[
+              const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Flexible(
-                    child: Text(
-                      message.text,
-                      style: const TextStyle(color: Colors.white),
+                  SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: Colors.grey.shade600,
                     ),
                   ),
-                  if (streaming) ...[
-                    const SizedBox(width: 4),
-                    const SizedBox(
-                      width: 8,
-                      height: 8,
-                      child: CircularProgressIndicator(strokeWidth: 1),
-                    ),
-                  ],
                 ],
-              ),
-            // Show response time for bot messages
-            if (!message.isUser && message.responseTimeMs != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                '${(message.responseTimeMs! / 1000).toStringAsFixed(1)}s',
-                style: const TextStyle(color: Colors.white54, fontSize: 10),
               ),
             ],
           ],

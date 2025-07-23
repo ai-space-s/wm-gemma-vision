@@ -1,11 +1,11 @@
 // lib/chat_page/services/chat_helpers.dart
-// Ultra-optimized version with throttling applied to your architecture
+// Ultra-optimized version with efficient camera usage - NO CameraService dependency
 
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../models/camera_context.dart';
 import '../models/message_models.dart';
 import '../widgets/prompt_bar.dart';
 import '../config/system_prompts.dart';
@@ -71,18 +71,59 @@ class ChatHelpers {
     _showSnackBar('New chat started');
   }
 
-  Future<void> captureAndSend(
-    String prompt,
-    List<ChatMessage> messages,
-    CameraContext cameraContext,
-  ) async {
-    if (!cameraContext.cameraInitialized || cameraContext.cameraError) {
-      messages.add(ChatMessage('Camera not available', isUser: false));
-      _onStateChanged();
-      return;
+  /// Efficient camera capture - only initialize when needed
+  Future<File?> _captureWithEfficientCamera() async {
+    if (kIsWeb) {
+      throw Exception('Camera not supported on web');
     }
 
+    CameraController? controller;
     try {
+      // Get available cameras
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        throw Exception('No cameras available');
+      }
+
+      // Find back camera or use first available
+      final description = cameras.firstWhere(
+        (cam) => cam.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      // Create controller only when needed
+      controller = CameraController(
+        description,
+        ResolutionPreset.high, // Good balance of quality/speed
+        enableAudio: false,
+      );
+
+      // Initialize and capture
+      await controller.initialize();
+      final image = await controller.takePicture();
+
+      return File(image.path);
+    } catch (e) {
+      debugPrint('Camera capture error: $e');
+      rethrow;
+    } finally {
+      // Always dispose immediately to free resources
+      await controller?.dispose();
+    }
+  }
+
+  Future<void> captureAndSend(String prompt, List<ChatMessage> messages) async {
+    try {
+      // Add user message immediately for instant feedback
+      messages.add(ChatMessage.text(prompt, isUser: true));
+      _onStateChanged();
+
+      // Add placeholder AI message immediately
+      final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
+      messages.add(aiMsg);
+      _onStateChanged();
+
+      // Now start the actual processing
       await _speechService.playWooshSound();
       await _speechService.announceMessageType(true);
       await Future.delayed(const Duration(milliseconds: 200));
@@ -91,48 +132,41 @@ class ChatHelpers {
       _onStateChanged();
 
       await _streamingTts.startLoading();
-      final img = await _safeTakePicture(cameraContext.camera);
 
-      if (img == null) {
-        await _streamingTts.stopLoading();
-        messages.add(ChatMessage('Camera busy; try again…', isUser: false));
-        _isGenerating = false;
-        _onStateChanged();
-        return;
-      }
+      // Efficient camera capture
+      final imageFile = await _captureWithEfficientCamera();
 
-      messages.add(ChatMessage(prompt, isUser: true));
+      // Update the user message with the image
+      final userMsg = messages.firstWhere((m) => m.isUser && m.text == prompt);
+      messages[messages.indexOf(userMsg)] = ChatMessage.withImageFile(
+        prompt,
+        isUser: true,
+        imageFile: imageFile,
+      );
       _onStateChanged();
 
-      final aiMsg = ChatMessage('', isUser: false, isStreaming: true);
-      messages.add(aiMsg);
-      _onStateChanged();
-
-      // 🔑 ULTRA-FAST OPTIMIZATION: Use local variables for throttling
+      // Ultra-fast optimization: Use local variables for throttling
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
 
       await _service.sendWithStreaming(
         text: '$_systemCtx\nUser: $prompt',
-        image: img,
+        image: imageFile,
         onToken: (tok) {
-          // 🔑 Build response incrementally with StringBuffer
+          // Build response incrementally with StringBuffer
           responseBuffer.write(tok);
           tokenCounter++;
 
-          // 🔑 THROTTLE: Only update UI and TTS every 3 tokens (adjust as needed)
+          // Throttle: Only update UI and TTS every 3 tokens
           if (tokenCounter % 3 == 0) {
             final currentText = responseBuffer.toString();
-            _streamingTts.addText(
-              tok,
-              aiMsg.text,
-            ); // Only process TTS occasionally
+            _streamingTts.addText(tok, aiMsg.text);
             aiMsg.text = currentText;
             _onStateChanged();
           }
         },
         onComplete: (stats) async {
-          // 🔑 Final update with complete text
+          // Final update with complete text
           final finalText = responseBuffer.toString();
           aiMsg
             ..text = finalText
@@ -145,7 +179,7 @@ class ChatHelpers {
       );
     } catch (e) {
       await _streamingTts.stopLoading();
-      messages.add(ChatMessage('Error: $e', isUser: false));
+      messages.add(ChatMessage.text('Error: $e', isUser: false));
       _isGenerating = false;
       _onStateChanged();
     }
@@ -153,6 +187,16 @@ class ChatHelpers {
 
   Future<void> sendTextOnly(String prompt, List<ChatMessage> messages) async {
     try {
+      // Add user message immediately for instant feedback
+      messages.add(ChatMessage.text(prompt, isUser: true));
+      _onStateChanged();
+
+      // Add placeholder AI message immediately
+      final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
+      messages.add(aiMsg);
+      _onStateChanged();
+
+      // Now start the actual processing
       await _speechService.playWooshSound();
       await _speechService.announceMessageType(false);
       await Future.delayed(const Duration(milliseconds: 200));
@@ -161,34 +205,28 @@ class ChatHelpers {
       _onStateChanged();
 
       await _streamingTts.startLoading();
-      messages.add(ChatMessage(prompt, isUser: true));
-      _onStateChanged();
 
-      final aiMsg = ChatMessage('', isUser: false, isStreaming: true);
-      messages.add(aiMsg);
-      _onStateChanged();
-
-      // 🔑 ULTRA-FAST OPTIMIZATION: Use local variables for throttling
+      // Ultra-fast optimization: Use local variables for throttling
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
 
       await _service.sendWithStreaming(
         text: '$_systemCtx\nUser: $prompt',
         onToken: (tok) {
-          // 🔑 Build response incrementally with StringBuffer
+          // Build response incrementally with StringBuffer
           responseBuffer.write(tok);
           tokenCounter++;
 
-          // 🔑 THROTTLE: Only update UI and TTS every 3 tokens
+          // Throttle: Only update UI and TTS every 3 tokens
           if (tokenCounter % 3 == 0) {
             final currentText = responseBuffer.toString();
-            _streamingTts.addText(tok, aiMsg.text); // Throttled TTS processing
+            _streamingTts.addText(tok, aiMsg.text);
             aiMsg.text = currentText;
             _onStateChanged();
           }
         },
         onComplete: (stats) async {
-          // 🔑 Final update with complete text
+          // Final update with complete text
           final finalText = responseBuffer.toString();
           aiMsg
             ..text = finalText
@@ -201,31 +239,19 @@ class ChatHelpers {
       );
     } catch (e) {
       await _streamingTts.stopLoading();
-      messages.add(ChatMessage('Error: $e', isUser: false));
+      messages.add(ChatMessage.text('Error: $e', isUser: false));
       _isGenerating = false;
       _onStateChanged();
     }
   }
 
-  Future<File?> _safeTakePicture(CameraController? camera) async {
-    if (camera == null || !camera.value.isInitialized) return null;
-    if (camera.value.isTakingPicture) return null;
-
-    try {
-      final x = await camera.takePicture();
-      return File(x.path);
-    } catch (e) {
-      debugPrint('Camera picture error: $e');
-      return null;
-    }
-  }
-
-  Future<void> quickAction1(List<ChatMessage> m, CameraContext c) async =>
-      captureAndSend(SystemPrompts.describeRoom, m, c);
-  Future<void> quickAction2(List<ChatMessage> m, CameraContext c) async =>
-      captureAndSend(SystemPrompts.tellMeWhatYouSee, m, c);
-  Future<void> quickAction3(List<ChatMessage> m, CameraContext c) async =>
-      captureAndSend(SystemPrompts.findExit, m, c);
-  Future<void> quickAction4(List<ChatMessage> m, CameraContext c) async =>
-      captureAndSend(SystemPrompts.readText, m, c);
+  // Quick action methods using efficient camera
+  Future<void> quickAction1(List<ChatMessage> messages) async =>
+      captureAndSend(SystemPrompts.describeRoom, messages);
+  Future<void> quickAction2(List<ChatMessage> messages) async =>
+      captureAndSend(SystemPrompts.tellMeWhatYouSee, messages);
+  Future<void> quickAction3(List<ChatMessage> messages) async =>
+      captureAndSend(SystemPrompts.findExit, messages);
+  Future<void> quickAction4(List<ChatMessage> messages) async =>
+      captureAndSend(SystemPrompts.readText, messages);
 }

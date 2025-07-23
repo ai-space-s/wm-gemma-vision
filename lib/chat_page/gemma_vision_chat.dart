@@ -1,21 +1,13 @@
 // lib/chat_page/chat_page.dart
-// Patched to avoid LateInitializationError by eagerly constructing
-// _tts and _streamingTts; also null‑aware dispose of services in case
-// bootstrap fails early.
-
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
 import 'widgets/prompt_bar.dart';
-
 import 'services/bootstrap_manager.dart';
-import 'services/camera_service.dart';
 import 'services/chat_helpers.dart';
 import 'services/speech_service.dart';
 import 'services/streaming_tts_service.dart';
-import 'models/camera_context.dart';
 import 'models/message_models.dart';
 import 'handlers/initialization_handler.dart';
 import 'handlers/keyboard_handler.dart';
@@ -37,9 +29,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   bool _showCamera = true;
   bool _settingsVisible = false;
 
-  // Eagerly create TTS objects so they are **always** initialized, even if
-  // bootstrap later fails. They will be overwritten with the instances coming
-  // from BootstrapManager, and the temporary ones are stopped/disposed.
   late FlutterTts _tts = FlutterTts();
   late StreamingTtsService _streamingTts = StreamingTtsService(_tts);
 
@@ -163,29 +152,21 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  /* ------------------------------------- camera context helper */
-  CameraContext get _cameraContext =>
-      CameraContext.fromService(CameraService.instance);
-
   /* -------------------- chat helper wrappers */
   Future<void> _newChat() async =>
       await _chatHelpers!.newChat(_msgs, _promptBarKey);
 
   Future<void> _captureAndSend(String prompt) async =>
-      await _chatHelpers!.captureAndSend(prompt, _msgs, _cameraContext);
+      await _chatHelpers!.captureAndSend(prompt, _msgs);
 
   Future<void> _sendTextOnly(String prompt) async =>
       await _chatHelpers!.sendTextOnly(prompt, _msgs);
 
   /* ------------------------ quick actions */
-  Future<void> _quickAction1() async =>
-      _chatHelpers!.quickAction1(_msgs, _cameraContext);
-  Future<void> _quickAction2() async =>
-      _chatHelpers!.quickAction2(_msgs, _cameraContext);
-  Future<void> _quickAction3() async =>
-      _chatHelpers!.quickAction3(_msgs, _cameraContext);
-  Future<void> _quickAction4() async =>
-      _chatHelpers!.quickAction4(_msgs, _cameraContext);
+  Future<void> _quickAction1() async => _chatHelpers!.quickAction1(_msgs);
+  Future<void> _quickAction2() async => _chatHelpers!.quickAction2(_msgs);
+  Future<void> _quickAction3() async => _chatHelpers!.quickAction3(_msgs);
+  Future<void> _quickAction4() async => _chatHelpers!.quickAction4(_msgs);
 
   /* -------------------------------------------------------------- build UI */
   @override
@@ -215,12 +196,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                   children: [
                     /* View toggles */
                     ChatUIBuilder.buildViewToggleButtons(
-                      showCamera: _showCamera,
                       showMessages: _showMessages,
-                      onToggleCamera: () =>
-                          setState(() => _showCamera = !_showCamera),
                       onToggleMessages: () =>
                           setState(() => _showMessages = !_showMessages),
+                      onNewChat: _newChat,
+                      isResetting: _chatHelpers!.resetting,
                     ),
 
                     /* Main content */
@@ -229,17 +209,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                         margin: const EdgeInsets.symmetric(horizontal: 16),
                         child: Column(
                           children: [
-                            if (_showCamera)
-                              Expanded(
-                                flex: _showMessages ? 1 : 2,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: ChatUIBuilder.buildCameraPreview(),
-                                ),
-                              ),
                             if (_showMessages)
                               Expanded(
-                                flex: _showCamera ? 1 : 2,
+                                flex: 2, // Give messages more space when shown
                                 child: ChatUIBuilder.buildMessagesContainer(
                                   _msgs,
                                 ),
@@ -248,7 +220,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-
                     /* Prompt bar */
                     ChatUIBuilder.buildPromptBarContainer(
                       promptBarKey: _promptBarKey,

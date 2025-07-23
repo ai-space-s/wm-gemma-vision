@@ -43,7 +43,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flutter Gemma Demo',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-      home: const UltraFastChatScreen(),
+      home: const ModelDownloadPage(),
     );
   }
 }

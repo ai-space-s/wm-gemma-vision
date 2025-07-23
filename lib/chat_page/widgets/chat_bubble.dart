@@ -1,10 +1,12 @@
 // widgets/chat_bubble.dart
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 
 import '../models/message_models.dart';
 
-/// Chat bubble widget for displaying messages
+/// Chat bubble widget for displaying messages with image support
 class ChatBubble extends StatelessWidget {
   final ChatMessage msg;
 
@@ -22,6 +24,9 @@ class ChatBubble extends StatelessWidget {
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
             padding: const EdgeInsets.all(12),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
+            ),
             decoration: BoxDecoration(
               color: msg.isUser ? Colors.indigo.shade100 : Colors.grey.shade200,
               borderRadius: BorderRadius.circular(8),
@@ -29,11 +34,39 @@ class ChatBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Use GptMarkdown widget for AI responses, plain text for user messages
-                if (msg.isUser)
-                  Text(msg.text)
-                else
-                  GptMarkdown(msg.text, style: const TextStyle(fontSize: 14)),
+                // Show image if present
+                if (msg.imageFile != null) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.file(
+                      msg.imageFile!,
+                      width: 150, // Smaller fixed width
+                      height: 120, // Fixed height for consistency
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (msg.imageBytes != null) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.memory(
+                      msg.imageBytes!,
+                      width: 150, // Smaller fixed width
+                      height: 120, // Fixed height for consistency
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                // Show text content
+                if (msg.text.isNotEmpty) ...[
+                  // Use GptMarkdown widget for AI responses, plain text for user messages
+                  if (msg.isUser)
+                    Text(msg.text)
+                  else
+                    GptMarkdown(msg.text, style: const TextStyle(fontSize: 14)),
+                ],
                 if (msg.isStreaming && !msg.isUser)
                   const Padding(
                     padding: EdgeInsets.only(top: 4),
