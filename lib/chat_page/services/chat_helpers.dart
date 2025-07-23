@@ -157,10 +157,14 @@ class ChatHelpers {
           responseBuffer.write(tok);
           tokenCounter++;
 
-          // Throttle: Only update UI and TTS every 3 tokens
+          // Throttle: Only update UI every 3 tokens, but always pass to TTS
+          final currentText = responseBuffer.toString();
+          _streamingTts.addText(
+            tok,
+            currentText,
+          ); // Pass new token and full text
+
           if (tokenCounter % 3 == 0) {
-            final currentText = responseBuffer.toString();
-            _streamingTts.addText(tok, aiMsg.text);
             aiMsg.text = currentText;
             _onStateChanged();
           }
@@ -173,8 +177,8 @@ class ChatHelpers {
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
+          _onStateChanged(); // Update UI with final text
           await _streamingTts.onMessageComplete();
-          _onStateChanged();
         },
       );
     } catch (e) {
@@ -217,10 +221,14 @@ class ChatHelpers {
           responseBuffer.write(tok);
           tokenCounter++;
 
-          // Throttle: Only update UI and TTS every 3 tokens
+          // Throttle: Only update UI every 3 tokens, but always pass to TTS
+          final currentText = responseBuffer.toString();
+          _streamingTts.addText(
+            tok,
+            currentText,
+          ); // Pass new token and full text
+
           if (tokenCounter % 3 == 0) {
-            final currentText = responseBuffer.toString();
-            _streamingTts.addText(tok, aiMsg.text);
             aiMsg.text = currentText;
             _onStateChanged();
           }
@@ -233,8 +241,8 @@ class ChatHelpers {
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
+          _onStateChanged(); // Update UI with final text
           await _streamingTts.onMessageComplete();
-          _onStateChanged();
         },
       );
     } catch (e) {

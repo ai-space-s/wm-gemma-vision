@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:gemma_chat/download_page/model_download_page.dart';
-import 'package:gemma_chat/fast_chat.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Top‑level so the background isolate can find it.

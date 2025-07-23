@@ -1,9 +1,6 @@
 // widgets/chat_bubble.dart
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
-
 import '../models/message_models.dart';
 
 /// Chat bubble widget for displaying messages with image support
