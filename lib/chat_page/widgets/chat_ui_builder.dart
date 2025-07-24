@@ -227,6 +227,7 @@ class ChatUIBuilder {
     required VoidCallback onToggleListening,
     required bool isGenerating,
     required bool isSpeaking,
+    Future<void> Function()? onStopTts, // Add TTS stop callback
   }) {
     // Full‑width orange bar when busy; plain white strip when idle.
     if (isGenerating || isSpeaking) {
@@ -247,6 +248,7 @@ class ChatUIBuilder {
         speechEnabled: speechEnabled,
         listening: listening,
         onToggleListening: onToggleListening,
+        onStopTts: onStopTts, // Pass the TTS stop callback
       ),
     );
   }

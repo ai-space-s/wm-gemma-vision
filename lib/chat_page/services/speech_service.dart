@@ -16,6 +16,7 @@ class SpeechService {
   bool _speechEnabled = false;
   bool _listening = false;
   String _dictationText = '';
+  bool _sendButtonPressed = false; // Track if send was pressed while listening
 
   SpeechService({
     required FlutterTts tts,
@@ -38,10 +39,12 @@ class SpeechService {
     return _isGeneratingCallback?.call() ?? false;
   }
 
+  /// Initialize speech recognition
   Future<void> initialize() async {
     try {
       _speechEnabled = await _speech.initialize(
         onStatus: (status) {
+          // Restart if recognizer auto‑stops while key still held - no delay needed
           if (_listening && status == 'notListening') {
             _listenAgain();
           }
@@ -71,12 +74,14 @@ class SpeechService {
     }
   }
 
+  /// Start dictation
   Future<void> startDictation() async {
     if (!_speechEnabled || _checkIsGenerating()) return;
 
     if (!_listening) {
-      _dictationText = '';
+      _dictationText = ''; // new session
       _listening = true;
+      _sendButtonPressed = false; // Reset send button flag
       _onStateChanged();
     }
 
@@ -84,20 +89,44 @@ class SpeechService {
     _listenAgain();
   }
 
+  /// Stop dictation
   Future<void> stopDictation() async {
     if (!_listening) return;
     _click();
     _listening = false;
     await _speech.stop();
-    if (_dictationText.trim().isNotEmpty) {
+
+    // Always read back if there's text and send button wasn't pressed
+    if (!_sendButtonPressed && _dictationText.trim().isNotEmpty) {
       await _tts.speak(_dictationText.trim());
     }
+
+    // Reset flag for next session
+    _sendButtonPressed = false;
     _onStateChanged();
   }
 
+  /// Stop any ongoing TTS speech (used when send buttons are pressed)
+  Future<void> stopTts() async {
+    try {
+      // Mark that send button was pressed while listening
+      if (_listening) {
+        _sendButtonPressed = true;
+      }
+
+      await _tts.stop();
+      // Wait a moment to ensure it's actually stopped
+      await Future.delayed(const Duration(milliseconds: 50));
+    } catch (e) {
+      debugPrint('Error stopping TTS: $e');
+    }
+  }
+
+  /// Toggle dictation on/off
   Future<void> toggleDictation() async =>
       _listening ? stopDictation() : startDictation();
 
+  /// Start listening again (internal) - using your original approach
   void _listenAgain() {
     _speech.listen(
       onResult: (val) {
@@ -109,15 +138,19 @@ class SpeechService {
         if (val.finalResult) _dictationText = full;
       },
       listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(seconds: 60),
+      pauseFor: const Duration(
+        seconds: 60,
+      ), // Your original setting - this handles pauses well
       partialResults: true,
       cancelOnError: false,
       listenMode: ListenMode.dictation,
     );
   }
 
+  /// Play click sound
   void _click() => SystemSound.play(SystemSoundType.click);
 
+  /// Handle F2 key events for push-to-talk
   KeyEventResult handleFocusKey(FocusNode _, KeyEvent e) {
     if (e.logicalKey == LogicalKeyboardKey.f2) {
       if (e is KeyDownEvent) {
@@ -131,6 +164,7 @@ class SpeechService {
     return KeyEventResult.ignored;
   }
 
+  /// Dispose resources
   void dispose() {
     _speech.stop();
     _speech.cancel();

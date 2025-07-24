@@ -130,7 +130,7 @@ class BootstrapManager {
       debugPrint("[BootstrapManager] Chat helpers initialized");
 
       // Update speech service's isGenerating callback now that chatHelpers exists
-      speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
+      // speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
 
       // Initialize keyboard handler
       final keyboardHandler = KeyboardHandler(

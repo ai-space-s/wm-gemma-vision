@@ -125,7 +125,9 @@ class ChatHelpers {
 
       // Now start the actual processing
       await _speechService.playWooshSound();
-      await _speechService.announceMessageType(true);
+      await _speechService.announceMessageType(
+        true,
+      ); // Announce "Sending text with photo"
       await Future.delayed(const Duration(milliseconds: 200));
 
       _isGenerating = true;
@@ -202,7 +204,9 @@ class ChatHelpers {
 
       // Now start the actual processing
       await _speechService.playWooshSound();
-      await _speechService.announceMessageType(false);
+      await _speechService.announceMessageType(
+        false,
+      ); // Announce "Sending text only"
       await Future.delayed(const Duration(milliseconds: 200));
 
       _isGenerating = true;

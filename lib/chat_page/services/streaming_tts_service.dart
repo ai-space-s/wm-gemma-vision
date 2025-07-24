@@ -18,6 +18,8 @@ class StreamingTtsService {
   int _tokensSinceLastSpeak = 0;
   bool _isProcessing = false;
   String _previousSegment = ''; // ── duplicate filter ★
+  bool _hasFirstSentence =
+      false; // Track if we have at least one complete sentence
 
   StreamingTtsService(this._tts) {
     _configureTts();
@@ -48,22 +50,29 @@ class StreamingTtsService {
 
   /// Consume one streaming token.
   void addText(String newToken, String currentFullText) {
-    // ── 1. Discard tokens that are *only* a period ──────────── ★
+    // ── 1. Discard tokens that are *only* a period ──────────── ★
     if (newToken.trim() == '.') return;
 
     _buffer = currentFullText;
     _tokensSinceLastSpeak++;
 
-    // Debounce
-    _bufferTimer?.cancel();
-    _bufferTimer = Timer(const Duration(milliseconds: 150), _processBuffer);
+    // Check if we now have at least one complete sentence
+    if (!_hasFirstSentence) {
+      final cleanText = _cleanMarkdownForTts(_buffer);
+      _hasFirstSentence = RegExp(r'[.!?]+\s+').hasMatch(cleanText);
+    }
 
-    // Fallback if we haven't spoken for a while
-    if ((_tokensSinceLastSpeak >= 5 || _getUnspokenText().length > 15) &&
+    // Debounce with longer delay to avoid premature speaking
+    _bufferTimer?.cancel();
+    _bufferTimer = Timer(const Duration(milliseconds: 300), _processBuffer);
+
+    // Only use fallback if we have a complete sentence OR message is getting very long
+    if (_hasFirstSentence &&
+        (_tokensSinceLastSpeak >= 8 || _getUnspokenText().length > 40) &&
         !_isProcessing &&
         !isSpeaking.value) {
       _fallbackTimer?.cancel();
-      _fallbackTimer = Timer(const Duration(milliseconds: 200), _forceSpeak);
+      _fallbackTimer = Timer(const Duration(milliseconds: 400), _forceSpeak);
     }
   }
 
@@ -78,6 +87,8 @@ class StreamingTtsService {
       _buffer += '.';
     }
 
+    // Give a moment for any ongoing speech to complete before final speech
+    await Future.delayed(const Duration(milliseconds: 100));
     await _speakRemainingText();
   }
 
@@ -109,7 +120,8 @@ class StreamingTtsService {
       _tokensSinceLastSpeak = 0;
 
       if (!_isProcessing) _processNextSegment();
-    } else if (newContent.length > 10) {
+    } else if (_hasFirstSentence && newContent.length > 25) {
+      // Only force speak if we have at least one sentence and accumulated enough text
       _forceSpeak();
     }
   }
@@ -118,7 +130,8 @@ class StreamingTtsService {
     if (_buffer.isEmpty || _isProcessing) return;
 
     final unspoken = _getUnspokenText();
-    if (unspoken.isNotEmpty && unspoken.length > 2) {
+    // Increase minimum threshold and require first sentence
+    if (_hasFirstSentence && unspoken.isNotEmpty && unspoken.length > 5) {
       _pendingSegments.add(unspoken);
       _lastSpokenLength = _cleanMarkdownForTts(_buffer).length;
       _tokensSinceLastSpeak = 0;
@@ -139,7 +152,7 @@ class StreamingTtsService {
 
       final segment = _pendingSegments.removeAt(0).trim();
 
-      // ── 2. Skip duplicates and pure punctuation ──────────── ★
+      // ── 2. Skip duplicates and pure punctuation ──────────── ★
       if (segment.isEmpty ||
           segment == _previousSegment ||
           RegExp(r'^[.!?,;:]+$').hasMatch(segment)) {
@@ -157,11 +170,19 @@ class StreamingTtsService {
 
     _isProcessing = false;
 
+    // Fixed: Check if we need to continue speaking
     if (_pendingSegments.isEmpty) {
-      if (_messageComplete || _buffer.isEmpty) {
+      if (_messageComplete) {
+        // Message is complete, speak any remaining text
+        await _speakRemainingText();
+      } else if (_buffer.isEmpty) {
+        // No more content, stop speaking
         isSpeaking.value = false;
-        if (_messageComplete) await _speakRemainingText();
+        if (_isLoading) {
+          await SoundManager.instance.resumeLoading();
+        }
       } else if (_isLoading) {
+        // Still generating, pause speaking but keep loading sound
         isSpeaking.value = false;
         await SoundManager.instance.resumeLoading();
       }
@@ -173,12 +194,23 @@ class StreamingTtsService {
       isSpeaking.value = false;
       return;
     }
+
     final unspoken = _getUnspokenText();
     if (unspoken.isNotEmpty &&
         !RegExp(r'^[.!?,;:]+$').hasMatch(unspoken.trim())) {
-      _pendingSegments.add(unspoken);
-      _lastSpokenLength = _cleanMarkdownForTts(_buffer).length;
-      if (!_isProcessing) await _processNextSegment();
+      // If it's a very short response (less than a sentence), speak it anyway
+      final cleanBuffer = _cleanMarkdownForTts(_buffer);
+      final isShortResponse =
+          cleanBuffer.length < 50 &&
+          !RegExp(r'[.!?]+\s+').hasMatch(cleanBuffer);
+
+      if (isShortResponse || _hasFirstSentence) {
+        _pendingSegments.add(unspoken);
+        _lastSpokenLength = _cleanMarkdownForTts(_buffer).length;
+        if (!_isProcessing) await _processNextSegment();
+      } else {
+        isSpeaking.value = false;
+      }
     } else {
       isSpeaking.value = false;
     }
@@ -204,25 +236,25 @@ class StreamingTtsService {
     }
     if (out.isNotEmpty) return out;
 
-    // Clause‑level breaks
-    if (text.length > 10) {
+    // Only use clause-level breaks if we already have a complete sentence
+    if (_hasFirstSentence && text.length > 15) {
       final breakRx = RegExp(
         r'[,;:]\s+|\s+(?:and|but|or|however|therefore|meanwhile|also|then|next|first|second|finally)\s+',
       );
       last = 0;
       for (final m in breakRx.allMatches(text)) {
         final chunk = text.substring(last, m.end).trim();
-        if (chunk.length > 5) out.add(chunk);
+        if (chunk.length > 8) out.add(chunk);
         last = m.end;
       }
     }
 
-    // Word-count fallback
-    if (out.isEmpty && text.length > 20) {
+    // Word-count fallback - only if we have first sentence and sufficient content
+    if (out.isEmpty && _hasFirstSentence && text.length > 35) {
       final words = text.split(' ');
       var buf = '';
       for (final w in words) {
-        if ((buf + ' ' + w).trim().length <= 30) {
+        if ((buf + ' ' + w).trim().length <= 40) {
           buf = [buf, w].where((s) => s.isNotEmpty).join(' ');
         } else {
           if (buf.isNotEmpty) out.add(buf);
@@ -272,6 +304,7 @@ class StreamingTtsService {
     _pendingSegments.clear();
     _isProcessing = false;
     _previousSegment = '';
+    _hasFirstSentence = false; // Reset first sentence tracking
     isSpeaking.value = false;
   }
 

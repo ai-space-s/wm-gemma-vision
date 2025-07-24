@@ -11,6 +11,9 @@ class PromptBar extends StatefulWidget {
   final bool listening;
   final VoidCallback onToggleListening;
 
+  // Callback to stop TTS when send buttons are pressed
+  final Future<void> Function()? onStopTts;
+
   const PromptBar({
     Key? key,
     required this.onPromptWithPhoto,
@@ -19,6 +22,7 @@ class PromptBar extends StatefulWidget {
     required this.speechEnabled,
     required this.listening,
     required this.onToggleListening,
+    this.onStopTts,
   }) : super(key: key);
 
   @override
@@ -29,35 +33,21 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
   final _ctrl = TextEditingController();
   bool _sending = false;
 
-  late AnimationController _pulseController;
   late AnimationController _scaleController;
-  late Animation<double> _pulseAnimation;
   late Animation<double> _scaleAnimation;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    );
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
 
-    // Very subtle pulse animation (1.0 to 1.02 instead of 1.1)
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.02).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
     // Very subtle scale animation (1.0 to 0.98 instead of 0.95)
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
       CurvedAnimation(parent: _scaleController, curve: Curves.easeInOut),
     );
-
-    if (widget.listening) {
-      _pulseController.repeat(reverse: true);
-    }
 
     // Listen to text changes to update button states
     _ctrl.addListener(() {
@@ -66,19 +56,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
   }
 
   @override
-  void didUpdateWidget(PromptBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.listening && !oldWidget.listening) {
-      _pulseController.repeat(reverse: true);
-    } else if (!widget.listening && oldWidget.listening) {
-      _pulseController.stop();
-      _pulseController.reset();
-    }
-  }
-
-  @override
   void dispose() {
-    _pulseController.dispose();
     _scaleController.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -113,6 +91,13 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     final txt = prompt.trim();
     if (txt.isEmpty) return;
 
+    // Stop any ongoing TTS (like question readback) and wait for it to stop
+    if (widget.onStopTts != null) {
+      await widget.onStopTts!();
+      // Give TTS a moment to actually stop
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
     // Stop voice input if it's active
     _stopVoiceIfListening();
 
@@ -130,6 +115,13 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     if (widget.disabled || _sending) return;
     final txt = prompt.trim();
     if (txt.isEmpty) return;
+
+    // Stop any ongoing TTS (like question readback) and wait for it to stop
+    if (widget.onStopTts != null) {
+      await widget.onStopTts!();
+      // Give TTS a moment to actually stop
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
 
     // Stop voice input if it's active
     _stopVoiceIfListening();
@@ -174,84 +166,79 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     required VoidCallback? onPressed,
     required List<Color> gradientColors,
     bool isExpanded = true,
-    bool showPulse = false,
     bool isEnabled = true,
     IconData? icon,
   }) {
     Widget button = AnimatedBuilder(
-      animation: showPulse ? _pulseAnimation : _scaleAnimation,
+      animation: _scaleAnimation,
       builder: (context, child) {
-        return Transform.scale(
-          scale: showPulse ? _pulseAnimation.value : 1.0,
-          child: GestureDetector(
-            onTapDown: isEnabled ? (_) => _scaleController.forward() : null,
-            onTapUp: isEnabled ? (_) => _scaleController.reverse() : null,
-            onTapCancel: isEnabled ? () => _scaleController.reverse() : null,
-            child: Container(
-              height: 56,
-              decoration: BoxDecoration(
-                gradient: isEnabled
-                    ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: gradientColors,
-                      )
-                    : null,
-                color: isEnabled ? null : Colors.grey.shade300,
+        return GestureDetector(
+          onTapDown: isEnabled ? (_) => _scaleController.forward() : null,
+          onTapUp: isEnabled ? (_) => _scaleController.reverse() : null,
+          onTapCancel: isEnabled ? () => _scaleController.reverse() : null,
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: isEnabled
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradientColors,
+                    )
+                  : null,
+              color: isEnabled ? null : Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: isEnabled
+                  ? [
+                      BoxShadow(
+                        color: gradientColors.first.withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: isEnabled ? onPressed : null,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: isEnabled
-                    ? [
-                        BoxShadow(
-                          color: gradientColors.first.withOpacity(0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 6),
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: isEnabled ? onPressed : null,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (_sending)
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_sending)
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
                             ),
-                          )
-                        else if (icon != null)
-                          Icon(
-                            icon,
-                            color: isEnabled
-                                ? Colors.white
-                                : Colors.grey.shade600,
-                            size: 22,
                           ),
-                        if (icon != null && !_sending)
-                          const SizedBox(width: 12),
-                        Text(
-                          label,
-                          style: TextStyle(
-                            color: isEnabled
-                                ? Colors.white
-                                : Colors.grey.shade600,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        )
+                      else if (icon != null)
+                        Icon(
+                          icon,
+                          color: isEnabled
+                              ? Colors.white
+                              : Colors.grey.shade600,
+                          size: 22,
                         ),
-                      ],
-                    ),
+                      if (icon != null && !_sending) const SizedBox(width: 12),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: isEnabled
+                              ? Colors.white
+                              : Colors.grey.shade600,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -328,7 +315,6 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                   ? [Colors.red.shade400, Colors.red.shade600]
                   : [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
               isExpanded: false,
-              showPulse: widget.listening,
               isEnabled: !disabled,
             ),
 
