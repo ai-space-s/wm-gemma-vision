@@ -74,6 +74,25 @@ class SpeechService {
     }
   }
 
+  /// Speak text using TTS (for errors and notifications)
+  Future<void> speak(String text) async {
+    try {
+      if (text.trim().isEmpty) return;
+
+      // Stop any ongoing speech first
+      await _tts.stop();
+
+      // Wait a moment to ensure it's stopped
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Speak the text
+      await _tts.speak(text);
+    } catch (e) {
+      debugPrint('Error speaking text: $e');
+      // Don't rethrow - TTS errors shouldn't break the app
+    }
+  }
+
   /// Start dictation
   Future<void> startDictation() async {
     if (!_speechEnabled || _checkIsGenerating()) return;

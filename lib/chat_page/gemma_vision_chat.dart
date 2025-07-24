@@ -52,6 +52,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   /* focus */
   final FocusNode _rootFocus = FocusNode();
 
+  /* Scroll controller for auto-scrolling */
+  final ScrollController _scrollController = ScrollController();
+  Timer? _autoScrollTimer;
+
   /* Animation controllers */
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -94,8 +98,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         backend: _backend,
         promptBarKey: _promptBarKey,
         onToggleMessages: () {
-          if (mounted && !_disposed)
+          if (mounted && !_disposed) {
             setState(() => _showMessages = !_showMessages);
+            // Scroll to bottom when messages are shown
+            if (_showMessages) {
+              _scrollToBottom(force: true);
+            }
+          }
         },
         onToggleCamera: () {
           if (mounted && !_disposed) setState(() => _showCamera = !_showCamera);
@@ -108,7 +117,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         onQuickAction4: _quickAction4,
         isMounted: () => mounted,
         isDisposed: () => _disposed,
-        setState: (fn) => setState(fn),
+        setState: (fn) {
+          setState(fn);
+          // Auto-scroll when messages are updated and visible
+          if (_showMessages) {
+            _scheduleAutoScroll();
+          }
+        },
       );
 
       // Stop/clean temporary instances before overwriting.
@@ -142,10 +157,34 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
+  /* ---------------------- Auto-scroll functionality ---------------------- */
+  void _scheduleAutoScroll() {
+    // Cancel any existing timer
+    _autoScrollTimer?.cancel();
+
+    // Schedule a scroll after a short delay to let the UI update
+    _autoScrollTimer = Timer(const Duration(milliseconds: 100), () {
+      _scrollToBottom();
+    });
+  }
+
+  void _scrollToBottom({bool force = false}) {
+    if (!_showMessages && !force) return; // Don't scroll if messages are hidden
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   /* ---------------------------------------------------------------- dispose */
   @override
   void dispose() {
     _disposed = true;
+    _autoScrollTimer?.cancel();
+    _scrollController.dispose();
     _fadeController.dispose();
     _slideController.dispose();
     _streamingTts.stop();
@@ -201,30 +240,28 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                     /* View toggles */
                     ChatUIBuilder.buildViewToggleButtons(
                       showMessages: _showMessages,
-                      onToggleMessages: () =>
-                          setState(() => _showMessages = !_showMessages),
+                      onToggleMessages: () {
+                        setState(() => _showMessages = !_showMessages);
+                        // Scroll to bottom when messages are shown
+                        if (_showMessages) {
+                          _scrollToBottom(force: true);
+                        }
+                      },
                       onNewChat: _newChat,
                       isResetting: _chatHelpers!.resetting,
                     ),
 
-                    /* Main content */
-                    Expanded(
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: [
-                            if (_showMessages)
-                              Expanded(
-                                flex: 2, // Give messages more space when shown
-                                child: ChatUIBuilder.buildMessagesContainer(
-                                  _msgs,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    /* Prompt bar */
+                    /* Main content - messages take available space */
+                    if (_showMessages)
+                      ChatUIBuilder.buildMessagesContainer(
+                        _msgs,
+                        _scrollController,
+                      )
+                    else
+                      const Expanded(
+                        child: SizedBox(),
+                      ), // Spacer when messages are hidden
+                    /* Prompt bar - always at bottom */
                     ChatUIBuilder.buildPromptBarContainer(
                       promptBarKey: _promptBarKey,
                       onPromptWithPhoto: _captureAndSend,

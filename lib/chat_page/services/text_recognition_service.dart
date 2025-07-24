@@ -81,40 +81,13 @@ class TextRecognitionService {
         fullText: recognizedText.text,
         blocks: blocks,
         lines: lines,
-        confidence: _calculateAverageConfidence(recognizedText),
       );
     } catch (e) {
       debugPrint(
         '[TextRecognitionService] Text extraction with metadata error: $e',
       );
-      return TextExtractionResult(
-        fullText: '',
-        blocks: [],
-        lines: [],
-        confidence: 0.0,
-      );
+      return TextExtractionResult(fullText: '', blocks: [], lines: []);
     }
-  }
-
-  /// Calculate average confidence score
-  double _calculateAverageConfidence(RecognizedText recognizedText) {
-    if (recognizedText.blocks.isEmpty) return 0.0;
-
-    double totalConfidence = 0.0;
-    int elementCount = 0;
-
-    for (TextBlock block in recognizedText.blocks) {
-      for (TextLine line in block.lines) {
-        for (TextElement element in line.elements) {
-          // Note: ML Kit doesn't provide confidence scores in the current version
-          // This is a placeholder for future versions or custom implementation
-          totalConfidence += 1.0; // Assume 100% confidence for now
-          elementCount++;
-        }
-      }
-    }
-
-    return elementCount > 0 ? totalConfidence / elementCount : 0.0;
   }
 
   /// Dispose resources
@@ -132,19 +105,17 @@ class TextExtractionResult {
   final String fullText;
   final List<String> blocks;
   final List<String> lines;
-  final double confidence;
 
   TextExtractionResult({
     required this.fullText,
     required this.blocks,
     required this.lines,
-    required this.confidence,
   });
 
   bool get hasText => fullText.isNotEmpty;
 
   @override
   String toString() {
-    return 'TextExtractionResult(text: "${fullText.length > 50 ? '${fullText.substring(0, 50)}...' : fullText}", blocks: ${blocks.length}, lines: ${lines.length}, confidence: ${confidence.toStringAsFixed(2)})';
+    return 'TextExtractionResult(text: "${fullText.length > 50 ? '${fullText.substring(0, 50)}...' : fullText}", blocks: ${blocks.length}, lines: ${lines.length})';
   }
 }

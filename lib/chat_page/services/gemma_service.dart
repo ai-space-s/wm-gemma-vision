@@ -34,7 +34,7 @@ class GemmaService {
       preferredBackend: backend,
       modelType: ModelType.gemmaIt,
       supportImage: true,
-      maxTokens: 4096,
+      maxTokens: 8192,
       maxNumImages: 1,
     );
 

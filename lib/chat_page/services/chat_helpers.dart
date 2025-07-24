@@ -1,6 +1,4 @@
 // lib/chat_page/services/chat_helpers.dart
-// Ultra-optimized version with efficient camera usage and text recognition
-
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -55,24 +53,80 @@ class ChatHelpers {
 
   void updateSystemContext(String newContext) => _systemCtx = newContext;
 
+  /// Announce error via TTS with proper error handling
+  Future<void> _announceError(String error) async {
+    try {
+      // Clean up the error message for better TTS pronunciation
+      final cleanError = error
+          .replaceAll('Exception:', '')
+          .replaceAll('Error:', '')
+          .replaceAll('_', ' ')
+          .trim();
+
+      await _speechService.speak('Error: $cleanError');
+    } catch (e) {
+      debugPrint('Failed to announce error via TTS: $e');
+      // Fallback to visual feedback only
+    }
+  }
+
+  /// Announce state change via TTS
+  Future<void> _announceStateChange(String message) async {
+    try {
+      await _speechService.speak(message);
+    } catch (e) {
+      debugPrint('Failed to announce state change via TTS: $e');
+      // Continue without TTS announcement
+    }
+  }
+
   Future<void> newChat(
     List<ChatMessage> messages,
     GlobalKey<PromptBarState>? promptBarKey,
   ) async {
     if (_resetting) return;
 
-    _streamingTts.reset();
-    _resetting = true;
-    _onStateChanged();
+    try {
+      _streamingTts.reset();
+      _resetting = true;
+      _onStateChanged();
 
-    messages.clear();
-    promptBarKey?.currentState?.clear();
+      // Announce starting new chat
+      await _announceStateChange('Starting new chat');
 
-    await _service.resetChatSession();
+      messages.clear();
+      promptBarKey?.currentState?.clear();
 
-    _resetting = false;
-    _onStateChanged();
-    _showSnackBar('New chat started');
+      await _service.resetChatSession();
+
+      _resetting = false;
+      _onStateChanged();
+
+      // Announce completion
+      _showSnackBar('New chat started');
+      await _announceStateChange('New chat ready');
+    } catch (e) {
+      _resetting = false;
+      _onStateChanged();
+
+      final errorMsg = 'Failed to start new chat: $e';
+      _showSnackBar(errorMsg);
+      await _announceError(errorMsg);
+    }
+  }
+
+  /// Show/hide messages with TTS announcements
+  Future<void> showMessages(List<ChatMessage> messages, bool show) async {
+    try {
+      if (show) {
+        await _announceStateChange('Showing ${messages.length} messages');
+      } else {
+        await _announceStateChange('Hiding messages');
+      }
+    } catch (e) {
+      debugPrint('Error in showMessages: $e');
+      await _announceError('Failed to toggle message visibility');
+    }
   }
 
   /// Efficient camera capture - only initialize when needed
@@ -105,10 +159,10 @@ class ChatHelpers {
       // Initialize and capture
       await controller.initialize();
       final image = await controller.takePicture();
-
       return File(image.path);
     } catch (e) {
       debugPrint('Camera capture error: $e');
+      await _announceError('Camera error: $e');
       rethrow;
     } finally {
       // Always dispose immediately to free resources
@@ -118,29 +172,33 @@ class ChatHelpers {
 
   Future<void> captureAndSend(String prompt, List<ChatMessage> messages) async {
     try {
-      // Add user message immediately for instant feedback
-      messages.add(ChatMessage.text(prompt, isUser: true));
-      _onStateChanged();
+      // FIRST: Capture photo immediately
+      final imageFile = await _captureWithEfficientCamera();
 
-      // Add placeholder AI message immediately
+      // SECOND: Add user message with image to chat instantly
+      final userMsg = ChatMessage.withImageFile(
+        prompt,
+        isUser: true,
+        imageFile: imageFile,
+      );
+      messages.add(userMsg);
+      _onStateChanged(); // Update UI immediately to show photo
+
+      // THIRD: Add placeholder AI message
       final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
       messages.add(aiMsg);
       _onStateChanged();
 
-      // Now start the actual processing
+      // FOURTH: Now play sound and announce (photo is already visible)
       await _speechService.playWooshSound();
       await _speechService.announceMessageType(
         true,
-      ); // Announce "Sending text with photo"
-      await Future.delayed(const Duration(milliseconds: 200));
+      ); // "Sending text with photo"
 
       _isGenerating = true;
       _onStateChanged();
 
       await _streamingTts.startLoading();
-
-      // Efficient camera capture
-      final imageFile = await _captureWithEfficientCamera();
 
       // Extract text from the image using ML Kit
       String extractedText = '';
@@ -154,17 +212,9 @@ class ChatHelpers {
         }
       } catch (e) {
         debugPrint('Text recognition error: $e');
+        await _announceError('Text recognition failed: $e');
         // Continue without text recognition if it fails
       }
-
-      // Update the user message with the image
-      final userMsg = messages.firstWhere((m) => m.isUser && m.text == prompt);
-      messages[messages.indexOf(userMsg)] = ChatMessage.withImageFile(
-        prompt,
-        isUser: true,
-        imageFile: imageFile,
-      );
-      _onStateChanged();
 
       // Prepare the enhanced prompt with extracted text
       String enhancedPrompt = prompt;
@@ -212,9 +262,22 @@ class ChatHelpers {
       );
     } catch (e) {
       await _streamingTts.stopLoading();
-      messages.add(ChatMessage.text('Error: $e', isUser: false));
+      final errorMsg = 'Failed to process image and text: $e';
+      // Only add error message if we haven't already added the user message
+      if (messages.isEmpty || !messages.last.isUser) {
+        messages.add(ChatMessage.text('Error: $e', isUser: false));
+      } else {
+        // Replace the placeholder AI message with error
+        final lastAiIndex = messages.lastIndexWhere((m) => !m.isUser);
+        if (lastAiIndex != -1) {
+          messages[lastAiIndex] = ChatMessage.text('Error: $e', isUser: false);
+        } else {
+          messages.add(ChatMessage.text('Error: $e', isUser: false));
+        }
+      }
       _isGenerating = false;
       _onStateChanged();
+      await _announceError(errorMsg);
     }
   }
 
@@ -231,16 +294,11 @@ class ChatHelpers {
 
       // Now start the actual processing
       await _speechService.playWooshSound();
-      await _speechService.announceMessageType(
-        false,
-      ); // Announce "Sending text only"
-      await Future.delayed(const Duration(milliseconds: 200));
-
+      await _speechService.announceMessageType(false);
       _isGenerating = true;
       _onStateChanged();
 
       await _streamingTts.startLoading();
-
       // Ultra-fast optimization: Use local variables for throttling
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
@@ -278,19 +336,64 @@ class ChatHelpers {
       );
     } catch (e) {
       await _streamingTts.stopLoading();
+      final errorMsg = 'Failed to send text message: $e';
       messages.add(ChatMessage.text('Error: $e', isUser: false));
       _isGenerating = false;
       _onStateChanged();
+      await _announceError(errorMsg);
     }
   }
 
-  // Quick action methods using efficient camera
-  Future<void> quickAction1(List<ChatMessage> messages) async =>
-      captureAndSend(SystemPrompts.describeRoom, messages);
-  Future<void> quickAction2(List<ChatMessage> messages) async =>
-      captureAndSend(SystemPrompts.tellMeWhatYouSee, messages);
-  Future<void> quickAction3(List<ChatMessage> messages) async =>
-      captureAndSend(SystemPrompts.findExit, messages);
-  Future<void> quickAction4(List<ChatMessage> messages) async =>
-      captureAndSend(SystemPrompts.readText, messages);
+  // Quick action methods using efficient camera with TTS announcements
+  Future<void> quickAction1(List<ChatMessage> messages) async {
+    await _announceStateChange('Describing room');
+    await captureAndSend(SystemPrompts.describeRoom, messages);
+  }
+
+  Future<void> quickAction2(List<ChatMessage> messages) async {
+    await _announceStateChange('Analyzing what I can see');
+    await captureAndSend(SystemPrompts.tellMeWhatYouSee, messages);
+  }
+
+  Future<void> quickAction3(List<ChatMessage> messages) async {
+    await _announceStateChange('Looking for exit');
+    await captureAndSend(SystemPrompts.findExit, messages);
+  }
+
+  Future<void> quickAction4(List<ChatMessage> messages) async {
+    await _announceStateChange('Reading text');
+    await captureAndSend(SystemPrompts.readText, messages);
+  }
+
+  /// Additional utility methods for UI state management with TTS
+  Future<void> pauseGeneration() async {
+    try {
+      if (_isGenerating) {
+        await _announceStateChange('Pausing generation');
+        // Add pause logic here
+      }
+    } catch (e) {
+      await _announceError('Failed to pause generation: $e');
+    }
+  }
+
+  Future<void> resumeGeneration() async {
+    try {
+      await _announceStateChange('Resuming generation');
+      // Add resume logic here
+    } catch (e) {
+      await _announceError('Failed to resume generation: $e');
+    }
+  }
+
+  Future<void> clearMessages(List<ChatMessage> messages) async {
+    try {
+      final messageCount = messages.length;
+      messages.clear();
+      _onStateChanged();
+      await _announceStateChange('Cleared $messageCount messages');
+    } catch (e) {
+      await _announceError('Failed to clear messages: $e');
+    }
+  }
 }

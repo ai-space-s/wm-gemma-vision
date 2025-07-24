@@ -208,34 +208,40 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (_sending)
+                      if (_sending) ...[
                         const SizedBox(
-                          width: 20,
-                          height: 20,
+                          width: 18,
+                          height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation<Color>(
                               Colors.white,
                             ),
                           ),
-                        )
-                      else if (icon != null)
+                        ),
+                        const SizedBox(width: 8),
+                      ] else if (icon != null) ...[
                         Icon(
                           icon,
                           color: isEnabled
                               ? Colors.white
                               : Colors.grey.shade600,
-                          size: 22,
+                          size: 20,
                         ),
-                      if (icon != null && !_sending) const SizedBox(width: 12),
-                      Text(
-                        label,
-                        style: TextStyle(
-                          color: isEnabled
-                              ? Colors.white
-                              : Colors.grey.shade600,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                        const SizedBox(width: 8),
+                      ],
+                      Flexible(
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            color: isEnabled
+                                ? Colors.white
+                                : Colors.grey.shade600,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
                       ),
                     ],

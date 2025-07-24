@@ -55,8 +55,9 @@ class ChatUIBuilder {
             child: _buildToggleButton(
               icon: Icons.refresh_rounded,
               label: 'New Chat',
-              isActive: false, // Always styled as inactive button
-              colors: [const Color(0xFF2196F3), const Color(0xFF1976D2)],
+              isActive: true,
+              activeColor: Colors.teal, // Green
+              inactiveColor: const Color(0xFFE8F5E8), // Light green
               onPressed: isResetting ? () {} : onNewChat,
               disabled: isResetting,
             ),
@@ -69,7 +70,8 @@ class ChatUIBuilder {
                   : Icons.chat_bubble_outline_rounded,
               label: showMessages ? 'Hide Messages' : 'Show Messages',
               isActive: showMessages,
-              colors: [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
+              activeColor: Colors.blueAccent, // Blue
+              inactiveColor: const Color(0xFFE3F2FD), // Light blue
               onPressed: onToggleMessages,
               disabled: false,
             ),
@@ -83,10 +85,29 @@ class ChatUIBuilder {
     required IconData icon,
     required String label,
     required bool isActive,
-    required List<Color> colors,
+    required Color activeColor,
+    required Color inactiveColor,
     required VoidCallback onPressed,
     bool disabled = false,
   }) {
+    Color backgroundColor;
+    Color textColor;
+    Color iconColor;
+
+    if (disabled) {
+      backgroundColor = const Color(0xFFE0E7FF);
+      textColor = const Color(0xFF9CA3AF);
+      iconColor = const Color(0xFF9CA3AF);
+    } else if (isActive) {
+      backgroundColor = activeColor;
+      textColor = Colors.white;
+      iconColor = Colors.white;
+    } else {
+      backgroundColor = inactiveColor;
+      textColor = activeColor;
+      iconColor = activeColor;
+    }
+
     return SizedBox(
       height: 56,
       child: Material(
@@ -94,35 +115,21 @@ class ChatUIBuilder {
         child: InkWell(
           onTap: disabled ? null : onPressed,
           borderRadius: BorderRadius.circular(16),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(
-              gradient: isActive ? LinearGradient(colors: colors) : null,
-              color: isActive
-                  ? null
-                  : (disabled ? Colors.grey.shade100 : Colors.white),
+              color: backgroundColor,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isActive ? Colors.transparent : Colors.grey.shade300,
-                width: 2,
-              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  icon,
-                  color: disabled
-                      ? Colors.grey.shade400
-                      : (isActive ? Colors.white : Colors.grey.shade700),
-                  size: 20,
-                ),
+                Icon(icon, color: iconColor, size: 20),
                 const SizedBox(width: 8),
                 Text(
                   label,
                   style: TextStyle(
-                    color: disabled
-                        ? Colors.grey.shade400
-                        : (isActive ? Colors.white : Colors.grey.shade700),
+                    color: textColor,
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),
@@ -135,81 +142,25 @@ class ChatUIBuilder {
     );
   }
 
-  // —————————————————— CAMERA PLACEHOLDER —————————————————— //
-  static Widget buildCameraPreview() {
-    // Since we're using on-demand camera, just show a placeholder
-    return _buildCameraPlaceholder('Camera captures on photo messages');
-  }
-
-  static Widget _buildCameraPlaceholder(String msg) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.grey.shade50, Colors.grey.shade100],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade300, width: 1),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.camera_alt_outlined,
-                size: 32,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              msg,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade700,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ———————————————————— MESSAGES LIST ———————————————————— //
-  static Widget buildMessagesContainer(List<ChatMessage> messages) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200, width: 2),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Semantics(
-          label: 'Chat messages',
-          hint: 'Swipe to scroll through conversation history',
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: messages.length,
-            semanticChildCount: messages.length,
-            itemBuilder: (_, i) => Semantics(
-              label: messages[i].isUser
-                  ? 'Your message ${i + 1} of ${messages.length}'
-                  : 'AI response ${i + 1} of ${messages.length}',
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: ChatBubble(msg: messages[i]),
-              ),
-            ),
+  static Widget buildMessagesContainer(
+    List<ChatMessage> messages,
+    ScrollController scrollController,
+  ) {
+    return Expanded(
+      child: Semantics(
+        label: 'Chat messages',
+        hint: 'Swipe to scroll through conversation history',
+        child: ListView.builder(
+          controller: scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          itemCount: messages.length,
+          semanticChildCount: messages.length,
+          itemBuilder: (_, i) => Semantics(
+            label: messages[i].isUser
+                ? 'Your message ${i + 1} of ${messages.length}'
+                : 'AI response ${i + 1} of ${messages.length}',
+            child: ChatBubble(msg: messages[i]),
           ),
         ),
       ),
@@ -303,13 +254,7 @@ class ChatUIBuilder {
   static Widget buildLoadingScreen() {
     return const Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-          ),
-        ),
+        decoration: BoxDecoration(color: Color(0xFF2196F3)),
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

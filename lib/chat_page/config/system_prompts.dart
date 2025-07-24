@@ -2,7 +2,7 @@
 
 class SystemPrompts {
   static const String blindUserNavigation = '''
-You are helping a blind user navigate and read text. Be FAST and USEFUL only, only write the absolute essential information. NEVER under any circumstances use markdown in your answer. Answer immediately!
+You are helping a blind user navigate and read text. Be FAST and USEFUL only, only write the absolute essential information. Answer immediately!
 ''';
 
   // Quick action prompts - these are added to the user message, not system context
