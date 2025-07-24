@@ -1,5 +1,5 @@
 // lib/chat_page/services/chat_helpers.dart
-// Ultra-optimized version with efficient camera usage - NO CameraService dependency
+// Ultra-optimized version with efficient camera usage and text recognition
 
 import 'dart:io';
 import 'package:camera/camera.dart';
@@ -12,11 +12,13 @@ import '../config/system_prompts.dart';
 import 'gemma_service.dart';
 import 'speech_service.dart';
 import 'streaming_tts_service.dart';
+import 'text_recognition_service.dart';
 
 class ChatHelpers {
   final GemmaService _service;
   final StreamingTtsService _streamingTts;
   final SpeechService _speechService;
+  final TextRecognitionService _textRecognition;
   final VoidCallback _onStateChanged;
   final Function(String) _showSnackBar;
 
@@ -28,12 +30,14 @@ class ChatHelpers {
     required GemmaService service,
     required StreamingTtsService streamingTts,
     required SpeechService speechService,
+    required TextRecognitionService textRecognition,
     required VoidCallback onStateChanged,
     required Function(String) showSnackBar,
     required String systemContext,
   }) : _service = service,
        _streamingTts = streamingTts,
        _speechService = speechService,
+       _textRecognition = textRecognition,
        _onStateChanged = onStateChanged,
        _showSnackBar = showSnackBar,
        _systemCtx = systemContext {
@@ -138,6 +142,21 @@ class ChatHelpers {
       // Efficient camera capture
       final imageFile = await _captureWithEfficientCamera();
 
+      // Extract text from the image using ML Kit
+      String extractedText = '';
+      try {
+        extractedText = await _textRecognition.extractTextFromImage(imageFile!);
+        if (extractedText.isNotEmpty) {
+          debugPrint('Extracted text from image: $extractedText');
+          _showSnackBar('Text detected in image');
+        } else {
+          debugPrint('No text detected in image');
+        }
+      } catch (e) {
+        debugPrint('Text recognition error: $e');
+        // Continue without text recognition if it fails
+      }
+
       // Update the user message with the image
       final userMsg = messages.firstWhere((m) => m.isUser && m.text == prompt);
       messages[messages.indexOf(userMsg)] = ChatMessage.withImageFile(
@@ -147,12 +166,20 @@ class ChatHelpers {
       );
       _onStateChanged();
 
+      // Prepare the enhanced prompt with extracted text
+      String enhancedPrompt = prompt;
+      if (extractedText.isNotEmpty) {
+        enhancedPrompt = '''$prompt
+
+[TEXT DETECTED IN IMAGE: $extractedText]''';
+      }
+
       // Ultra-fast optimization: Use local variables for throttling
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
 
       await _service.sendWithStreaming(
-        text: '$_systemCtx\nUser: $prompt',
+        text: '$_systemCtx\nUser: $enhancedPrompt',
         image: imageFile,
         onToken: (tok) {
           // Build response incrementally with StringBuffer

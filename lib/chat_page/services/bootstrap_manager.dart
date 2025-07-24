@@ -10,6 +10,7 @@ import 'gemma_service.dart';
 import 'streaming_tts_service.dart';
 import 'chat_helpers.dart';
 import 'speech_service.dart';
+import 'text_recognition_service.dart';
 import '../handlers/keyboard_handler.dart';
 import '../widgets/prompt_bar.dart';
 
@@ -89,7 +90,18 @@ class BootstrapManager {
         throw BootstrapException("Widget not mounted");
       }
 
-      // NO CAMERA SERVICE INITIALIZATION - using on-demand camera now
+      // Initialize text recognition service
+      final textRecognition = TextRecognitionService.instance;
+      await textRecognition.initialize();
+      debugPrint("[BootstrapManager] Text recognition initialized");
+
+      if (!isMounted() || isDisposed()) {
+        debugPrint(
+          "[BootstrapManager] Not mounted after text recognition init",
+        );
+        _globalBootstrapCompleter!.complete();
+        throw BootstrapException("Widget not mounted");
+      }
 
       // Initialize speech service first (needed for chat helpers)
       final speechService = SpeechService(
@@ -110,11 +122,12 @@ class BootstrapManager {
       }
       debugPrint("[BootstrapManager] Speech service initialized");
 
-      // Initialize chat helpers with speech service
+      // Initialize chat helpers with speech service and text recognition
       final chatHelpers = ChatHelpers(
         service: GemmaService.instance,
         streamingTts: streamingTts,
         speechService: speechService,
+        textRecognition: textRecognition,
         onStateChanged: () {
           if (isMounted() && !isDisposed()) setState(() {});
         },
@@ -130,7 +143,7 @@ class BootstrapManager {
       debugPrint("[BootstrapManager] Chat helpers initialized");
 
       // Update speech service's isGenerating callback now that chatHelpers exists
-      // speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
+      speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
 
       // Initialize keyboard handler
       final keyboardHandler = KeyboardHandler(
@@ -170,6 +183,7 @@ class BootstrapManager {
         chatHelpers: chatHelpers,
         speechService: speechService,
         keyboardHandler: keyboardHandler,
+        textRecognition: textRecognition,
       );
     } catch (e, stackTrace) {
       debugPrint("[BootstrapManager] Bootstrap error: $e");
@@ -205,6 +219,7 @@ class BootstrapResult {
   final ChatHelpers chatHelpers;
   final SpeechService speechService;
   final KeyboardHandler keyboardHandler;
+  final TextRecognitionService textRecognition;
 
   BootstrapResult({
     required this.tts,
@@ -212,6 +227,7 @@ class BootstrapResult {
     required this.chatHelpers,
     required this.speechService,
     required this.keyboardHandler,
+    required this.textRecognition,
   });
 }
 

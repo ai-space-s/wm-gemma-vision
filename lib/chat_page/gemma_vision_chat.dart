@@ -8,6 +8,7 @@ import 'services/bootstrap_manager.dart';
 import 'services/chat_helpers.dart';
 import 'services/speech_service.dart';
 import 'services/streaming_tts_service.dart';
+import 'services/text_recognition_service.dart';
 import 'models/message_models.dart';
 import 'handlers/initialization_handler.dart';
 import 'handlers/keyboard_handler.dart';
@@ -36,6 +37,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   ChatHelpers? _chatHelpers;
   SpeechService? _speechService;
   KeyboardHandler? _keyboardHandler;
+  TextRecognitionService? _textRecognition;
 
   // Use the specialized blind user navigation prompt by default
   String _systemCtx = SystemPrompts.blindUserNavigation;
@@ -119,6 +121,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       _chatHelpers = result.chatHelpers;
       _speechService = result.speechService;
       _keyboardHandler = result.keyboardHandler;
+      _textRecognition = result.textRecognition;
 
       if (mounted && !_disposed) {
         setState(() => _initialising = false);
@@ -148,6 +151,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _streamingTts.stop();
     _tts.stop();
     _speechService?.dispose();
+    _textRecognition?.dispose();
     _rootFocus.dispose();
     super.dispose();
   }
