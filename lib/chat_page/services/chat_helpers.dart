@@ -365,27 +365,6 @@ class ChatHelpers {
     await captureAndSend(SystemPrompts.readText, messages);
   }
 
-  /// Additional utility methods for UI state management with TTS
-  Future<void> pauseGeneration() async {
-    try {
-      if (_isGenerating) {
-        await _announceStateChange('Pausing generation');
-        // Add pause logic here
-      }
-    } catch (e) {
-      await _announceError('Failed to pause generation: $e');
-    }
-  }
-
-  Future<void> resumeGeneration() async {
-    try {
-      await _announceStateChange('Resuming generation');
-      // Add resume logic here
-    } catch (e) {
-      await _announceError('Failed to resume generation: $e');
-    }
-  }
-
   Future<void> clearMessages(List<ChatMessage> messages) async {
     try {
       final messageCount = messages.length;

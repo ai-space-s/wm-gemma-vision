@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../services/sound_manager.dart';
 
-/// Modern light theme prompt bar widget
+/// Modern light theme prompt bar widget with dictation sounds
 class PromptBar extends StatefulWidget {
   final Future<void> Function(String) onPromptWithPhoto;
   final Future<void> Function(String) onPromptTextOnly;
@@ -81,6 +82,33 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
   /* --------------- voice control helper --------------- */
   void _stopVoiceIfListening() {
     if (widget.listening) {
+      widget.onToggleListening();
+    }
+  }
+
+  /* --------------- dictation toggle with sound --------------- */
+  Future<void> _handleDictationToggle() async {
+    if (widget.disabled || _sending) return;
+
+    if (widget.listening) {
+      // Currently listening, so stop
+      print('Stopping dictation - playing stop sound');
+
+      // Stop listening FIRST, then play sound
+      widget.onToggleListening();
+
+      // Wait a moment then play stop sound
+      await Future.delayed(const Duration(milliseconds: 100));
+      await SoundManager.instance.playDictationStop();
+    } else {
+      // Not listening, so start
+      print('Starting dictation - playing start sound');
+
+      // Play start sound FIRST
+      await SoundManager.instance.playDictationStart();
+
+      // Wait for sound to start playing, then start listening
+      await Future.delayed(const Duration(milliseconds: 200));
       widget.onToggleListening();
     }
   }
@@ -299,7 +327,6 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                       )
                     : null,
               ),
-              // Remove onChanged since we're using controller listener
               // Stop voice input when user submits via keyboard
               onSubmitted: hasText ? (t) => _sendWithPhoto(t) : null,
             ),
@@ -316,7 +343,9 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
               icon: widget.listening
                   ? Icons.mic_off_rounded
                   : Icons.mic_rounded,
-              onPressed: disabled ? null : widget.onToggleListening,
+              onPressed: disabled
+                  ? null
+                  : _handleDictationToggle, // Updated to use sound handler
               gradientColors: widget.listening
                   ? [Colors.red.shade400, Colors.red.shade600]
                   : [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
