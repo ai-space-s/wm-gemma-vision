@@ -1,6 +1,7 @@
 // services/gemma_service.dart - Further Optimized Version
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/core/model.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
@@ -73,65 +74,124 @@ class GemmaService {
         .map((res) => (res as TextResponse).token);
   }
 
-  /// Legacy callback-based method (kept for compatibility)
+  /// Legacy callback-based method (kept for compatibility) - DEBUG VERSION
   Future<void> sendWithStreaming({
     required String text,
     File? image,
     required Function(String) onToken,
     required Function(MessageStats) onComplete,
   }) async {
+    debugPrint('🤖 GemmaService.sendWithStreaming called');
+    debugPrint('📝 Text length: ${text.length}');
+    debugPrint('🖼️ Image provided: ${image != null}');
+    debugPrint('🔧 Model initialized: ${_model != null}');
+    debugPrint('💬 Chat initialized: ${_chat != null}');
+
+    if (!_initialised) {
+      debugPrint('❌ Service not initialized!');
+      throw Exception('GemmaService not initialized');
+    }
+
+    if (_chat == null) {
+      debugPrint('❌ Chat is null!');
+      throw Exception('Chat not available');
+    }
+
     final startTime = DateTime.now();
     DateTime? firstTokenTime;
     int tokenCount = 0;
     final responseBuffer = StringBuffer();
 
-    if (image != null) {
-      final bytes = await image.readAsBytes();
-      await _chat!.addQuery(
-        Message.withImage(text: text, imageBytes: bytes, isUser: true),
-      );
-    } else {
-      await _chat!.addQuery(Message.text(text: text, isUser: true));
-    }
-
-    final completer = Completer<void>();
-
-    _chat!.generateChatResponseAsync().listen(
-      (ModelResponse res) {
-        if (res is TextResponse) {
-          firstTokenTime ??= DateTime.now();
-          tokenCount++;
-          responseBuffer.write(res.token);
-
-          // 🔑 Send individual tokens, let caller handle throttling
-          onToken(res.token);
-        }
-      },
-      onDone: () {
-        final endTime = DateTime.now();
-        final stats = MessageStats(
-          timeToFirstToken: firstTokenTime != null
-              ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0
-              : null,
-          totalLatency: endTime.difference(startTime).inMilliseconds / 1000.0,
-          tokenCount: tokenCount,
-          prefillSpeed: firstTokenTime != null && tokenCount > 0
-              ? 1000.0 / firstTokenTime!.difference(startTime).inMilliseconds
-              : null,
-          decodeSpeed: firstTokenTime != null && tokenCount > 1
-              ? (tokenCount - 1) *
-                    1000.0 /
-                    endTime.difference(firstTokenTime!).inMilliseconds
-              : null,
+    try {
+      debugPrint('📋 Adding query to chat...');
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        debugPrint('🖼️ Image bytes length: ${bytes.length}');
+        await _chat!.addQuery(
+          Message.withImage(text: text, imageBytes: bytes, isUser: true),
         );
+      } else {
+        await _chat!.addQuery(Message.text(text: text, isUser: true));
+      }
+      debugPrint('✅ Query added successfully');
 
-        onComplete(stats);
-        completer.complete();
-      },
-      onError: completer.completeError,
-    );
+      final completer = Completer<void>();
+      bool streamStarted = false;
 
-    await completer.future;
+      debugPrint('🎯 Starting response stream...');
+      _chat!.generateChatResponseAsync().listen(
+        (ModelResponse res) {
+          if (!streamStarted) {
+            debugPrint('🎉 Stream started! First response received');
+            streamStarted = true;
+          }
+
+          debugPrint('📨 Received response type: ${res.runtimeType}');
+
+          if (res is TextResponse) {
+            firstTokenTime ??= DateTime.now();
+            tokenCount++;
+            responseBuffer.write(res.token);
+
+            debugPrint(
+              '🔤 Token $tokenCount: "${res.token.replaceAll('\n', '\\n')}"',
+            );
+
+            // 🔑 Send individual tokens, let caller handle throttling
+            try {
+              onToken(res.token);
+              debugPrint('✅ Token passed to callback successfully');
+            } catch (e) {
+              debugPrint('❌ Error in onToken callback: $e');
+            }
+          } else {
+            debugPrint('⚠️ Non-text response: $res');
+          }
+        },
+        onDone: () {
+          debugPrint('🏁 Stream completed! Total tokens: $tokenCount');
+          final endTime = DateTime.now();
+          final stats = MessageStats(
+            timeToFirstToken: firstTokenTime != null
+                ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0
+                : null,
+            totalLatency: endTime.difference(startTime).inMilliseconds / 1000.0,
+            tokenCount: tokenCount,
+            prefillSpeed: firstTokenTime != null && tokenCount > 0
+                ? 1000.0 / firstTokenTime!.difference(startTime).inMilliseconds
+                : null,
+            decodeSpeed: firstTokenTime != null && tokenCount > 1
+                ? (tokenCount - 1) *
+                      1000.0 /
+                      endTime.difference(firstTokenTime!).inMilliseconds
+                : null,
+          );
+
+          debugPrint('📊 Final stats: $stats');
+
+          try {
+            onComplete(stats);
+            debugPrint('✅ onComplete callback executed successfully');
+          } catch (e) {
+            debugPrint('❌ Error in onComplete callback: $e');
+          }
+
+          completer.complete();
+        },
+        onError: (error) {
+          debugPrint('❌ Stream error: $error');
+          completer.completeError(error);
+        },
+      );
+
+      debugPrint('⏳ Waiting for stream to complete...');
+      await completer.future;
+      debugPrint('✅ sendWithStreaming completed successfully');
+    } catch (e, stackTrace) {
+      debugPrint('❌ ERROR in sendWithStreaming: $e');
+      debugPrint('📚 Stack trace: $stackTrace');
+      rethrow;
+    }
   }
 
   Future<void> resetChatSession() async {

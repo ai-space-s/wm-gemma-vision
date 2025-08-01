@@ -31,6 +31,7 @@ class BootstrapManager {
     required Future<void> Function() onQuickAction2,
     required Future<void> Function() onQuickAction3,
     required Future<void> Function() onQuickAction4,
+    required VoidCallback onToggleVoice,
     required bool Function() isMounted,
     required bool Function() isDisposed,
     required void Function(VoidCallback) setState,
@@ -145,7 +146,7 @@ class BootstrapManager {
       // Update speech service's isGenerating callback now that chatHelpers exists
       speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
 
-      // Initialize keyboard handler
+      // Initialize keyboard handler with voice toggle callback
       final keyboardHandler = KeyboardHandler(
         context: context,
         promptBarKey: promptBarKey,
@@ -157,6 +158,7 @@ class BootstrapManager {
         onQuickAction2: onQuickAction2,
         onQuickAction3: onQuickAction3,
         onQuickAction4: onQuickAction4,
+        onToggleVoice: onToggleVoice,
       );
       debugPrint("[BootstrapManager] Keyboard handler initialized");
 

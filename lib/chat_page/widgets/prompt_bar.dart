@@ -1,18 +1,17 @@
+// lib/chat_page/widgets/prompt_bar.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../services/sound_manager.dart';
+import 'semantic_material_button.dart';
 
-/// Modern light theme prompt bar widget with dictation sounds
 class PromptBar extends StatefulWidget {
   final Future<void> Function(String) onPromptWithPhoto;
   final Future<void> Function(String) onPromptTextOnly;
   final bool disabled;
-
-  // Speech‑to‑text control flags
   final bool speechEnabled;
   final bool listening;
   final VoidCallback onToggleListening;
-
-  // Callback to stop TTS when send buttons are pressed
   final Future<void> Function()? onStopTts;
 
   const PromptBar({
@@ -40,17 +39,16 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
 
-    // Very subtle scale animation (1.0 to 0.98 instead of 0.95)
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
       CurvedAnimation(parent: _scaleController, curve: Curves.easeInOut),
     );
 
-    // Listen to text changes to update button states
     _ctrl.addListener(() {
       setState(() {});
     });
@@ -63,7 +61,6 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  /* --------------- external helpers --------------- */
   String get currentText => _ctrl.text;
   void clear() => _ctrl.clear();
 
@@ -79,63 +76,45 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     });
   }
 
-  /* --------------- voice control helper --------------- */
   void _stopVoiceIfListening() {
     if (widget.listening) {
       widget.onToggleListening();
     }
   }
 
-  /* --------------- dictation toggle with sound --------------- */
   Future<void> _handleDictationToggle() async {
     if (widget.disabled || _sending) return;
 
     if (widget.listening) {
-      // Currently listening, so stop
-      print('Stopping dictation - playing stop sound');
-
-      // Stop listening FIRST, then play sound
       widget.onToggleListening();
-
-      // Wait a moment then play stop sound
-      await Future.delayed(const Duration(milliseconds: 100));
       await SoundManager.instance.playDictationStop();
+      // Keep focus on the voice button after stopping
     } else {
-      // Not listening, so start
-      print('Starting dictation - playing start sound');
-
-      // Play start sound FIRST
+      // Don't unfocus - keep the button focused so user can easily stop dictation
       await SoundManager.instance.playDictationStart();
-
-      // Wait for sound to start playing, then start listening
-      await Future.delayed(const Duration(milliseconds: 200));
       widget.onToggleListening();
     }
   }
 
-  /* --------------- internal send helpers ---------- */
   Future<void> _sendWithPhoto(String prompt) async {
     if (widget.disabled || _sending) return;
     final txt = prompt.trim();
     if (txt.isEmpty) return;
 
-    // Stop any ongoing TTS (like question readback) and wait for it to stop
     if (widget.onStopTts != null) {
       await widget.onStopTts!();
-      // Give TTS a moment to actually stop
-      await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    // Stop voice input if it's active
     _stopVoiceIfListening();
-
     _ctrl.clear();
-    FocusManager.instance.primaryFocus?.unfocus();
+
     setState(() => _sending = true);
     try {
       await widget.onPromptWithPhoto(txt);
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+      }
     }
   }
 
@@ -144,23 +123,20 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     final txt = prompt.trim();
     if (txt.isEmpty) return;
 
-    // Stop any ongoing TTS (like question readback) and wait for it to stop
     if (widget.onStopTts != null) {
       await widget.onStopTts!();
-      // Give TTS a moment to actually stop
-      await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    // Stop voice input if it's active
     _stopVoiceIfListening();
-
     _ctrl.clear();
-    FocusManager.instance.primaryFocus?.unfocus();
+
     setState(() => _sending = true);
     try {
       await widget.onPromptTextOnly(txt);
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+      }
     }
   }
 
@@ -196,198 +172,344 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     bool isExpanded = true,
     bool isEnabled = true,
     IconData? icon,
+    String? hint,
   }) {
-    Widget button = AnimatedBuilder(
-      animation: _scaleAnimation,
-      builder: (context, child) {
-        return GestureDetector(
-          onTapDown: isEnabled ? (_) => _scaleController.forward() : null,
-          onTapUp: isEnabled ? (_) => _scaleController.reverse() : null,
-          onTapCancel: isEnabled ? () => _scaleController.reverse() : null,
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: isEnabled
-                  ? LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradientColors,
-                    )
-                  : null,
-              color: isEnabled ? null : Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: isEnabled
-                  ? [
-                      BoxShadow(
-                        color: gradientColors.first.withOpacity(0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: isEnabled ? onPressed : null,
+    // If disabled, return simple disabled button without any wrappers
+    if (!isEnabled || onPressed == null) {
+      final disabledButton = Container(
+        height: 56,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_sending) ...[
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ] else if (icon != null) ...[
+                Icon(icon, color: Colors.grey.shade600, size: 20),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      return isExpanded ? Expanded(child: disabledButton) : disabledButton;
+    }
+
+    // ✅ ANDROID FIX: Use platform-specific button implementation
+    Widget button;
+
+    if (Platform.isAndroid) {
+      // Android: Simple direct approach without SemanticMaterialButton wrapper
+      button = AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: gradientColors,
+                ),
                 borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (_sending) ...[
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: gradientColors.first.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Semantics(
+                  button: true,
+                  enabled: true,
+                  label: label,
+                  hint: hint,
+                  onTap: onPressed,
+                  child: InkWell(
+                    onTap: () {
+                      _scaleController.forward().then((_) {
+                        _scaleController.reverse();
+                      });
+                      onPressed();
+                    },
+                    onTapDown: (_) => _scaleController.forward(),
+                    onTapUp: (_) => _scaleController.reverse(),
+                    onTapCancel: () => _scaleController.reverse(),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_sending) ...[
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ] else if (icon != null) ...[
+                            Icon(icon, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                          ],
+                          Flexible(
+                            child: Text(
+                              label,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                      ] else if (icon != null) ...[
-                        Icon(
-                          icon,
-                          color: isEnabled
-                              ? Colors.white
-                              : Colors.grey.shade600,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Flexible(
-                        child: Text(
-                          label,
-                          style: TextStyle(
-                            color: isEnabled
-                                ? Colors.white
-                                : Colors.grey.shade600,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-      },
-    );
+          );
+        },
+      );
+    } else {
+      // iOS: Use SemanticMaterialButton for proper VoiceOver support
+      final buttonContent = AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: gradientColors,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: gradientColors.first.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    _scaleController.forward().then((_) {
+                      _scaleController.reverse();
+                    });
+                    onPressed();
+                  },
+                  onTapDown: (_) => _scaleController.forward(),
+                  onTapUp: (_) => _scaleController.reverse(),
+                  onTapCancel: () => _scaleController.reverse(),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_sending) ...[
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ] else if (icon != null) ...[
+                          Icon(icon, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                        ],
+                        Flexible(
+                          child: Text(
+                            label,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+
+      button = SemanticMaterialButton(
+        label: label,
+        hint: hint,
+        onPressed: onPressed,
+        disabled: false,
+        child: buttonContent,
+      );
+    }
 
     return isExpanded ? Expanded(child: button) : button;
   }
 
-  /* ------------------------------- UI ------------------------------- */
   @override
   Widget build(BuildContext context) {
     final disabled = widget.disabled || _sending;
     final hasText = _ctrl.text.trim().isNotEmpty;
 
     return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          /* Modern text field */
-          _buildModernContainer(
-            backgroundColor: Colors.white,
-            child: TextField(
-              controller: _ctrl,
-              enabled: !disabled,
-              minLines: 1,
-              maxLines: 4,
-              style: TextStyle(
-                color: Colors.grey.shade800,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
+      child: FocusTraversalGroup(
+        policy: WidgetOrderTraversalPolicy(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildModernContainer(
+              backgroundColor: Colors.white,
+              child: Focus(
+                // Make TextField focusable via keyboard navigation
+                canRequestFocus: true,
+                child: TextField(
+                  controller: _ctrl,
+                  enabled: !disabled,
+                  minLines: 1,
+                  maxLines: 4,
+                  style: TextStyle(
+                    color: Colors.grey.shade800,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textInputAction: TextInputAction.newline,
+                  decoration: InputDecoration(
+                    hintText: 'Type your message here…',
+                    hintStyle: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 16,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.all(20),
+                    suffixIcon: hasText
+                        ? IconButton(
+                            onPressed: () {
+                              _ctrl.clear();
+                              setState(() {});
+                            },
+                            icon: Icon(
+                              Icons.clear_rounded,
+                              color: Colors.grey.shade500,
+                            ),
+                          )
+                        : null,
+                  ),
+                  onSubmitted: hasText ? (t) => _sendWithPhoto(t) : null,
+                ),
               ),
-              textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                hintText: 'Type your message here…',
-                hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 16),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.all(20),
-                suffixIcon: hasText
-                    ? IconButton(
-                        onPressed: () {
-                          _ctrl.clear();
-                          setState(() {});
-                        },
-                        icon: Icon(
-                          Icons.clear_rounded,
-                          color: Colors.grey.shade500,
-                        ),
-                      )
-                    : null,
-              ),
-              // Stop voice input when user submits via keyboard
-              onSubmitted: hasText ? (t) => _sendWithPhoto(t) : null,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          /* Voice button (full width when available) */
-          if (widget.speechEnabled)
-            _buildModernButton(
-              label: widget.listening
-                  ? 'Stop Voice Input'
-                  : 'Start Voice Input',
-              icon: widget.listening
-                  ? Icons.mic_off_rounded
-                  : Icons.mic_rounded,
-              onPressed: disabled
-                  ? null
-                  : _handleDictationToggle, // Updated to use sound handler
-              gradientColors: widget.listening
-                  ? [Colors.red.shade400, Colors.red.shade600]
-                  : [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
-              isExpanded: false,
-              isEnabled: !disabled,
             ),
 
-          if (widget.speechEnabled) const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-          /* Send buttons row */
-          Row(
-            children: [
-              /* Text only button */
+            if (widget.speechEnabled)
               _buildModernButton(
-                label: 'Send Text Only',
-                onPressed: (disabled || !hasText)
-                    ? null
-                    : () => _sendText(_ctrl.text),
-                gradientColors: [
-                  const Color(0xFF2196F3),
-                  const Color(0xFF1976D2),
-                ],
-                isEnabled: !disabled && hasText,
+                label: widget.listening
+                    ? 'Stop Voice Input'
+                    : 'Start Voice Input',
+                hint: widget.listening
+                    ? 'Double-tap to stop recording your voice'
+                    : 'Double-tap to start recording your voice',
+                icon: widget.listening
+                    ? Icons.mic_off_rounded
+                    : Icons.mic_rounded,
+                onPressed: _handleDictationToggle,
+                gradientColors: widget.listening
+                    ? [Colors.red.shade400, Colors.red.shade600]
+                    : [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
+                isExpanded: false,
+                isEnabled: !widget.disabled,
               ),
 
-              const SizedBox(width: 12),
+            if (widget.speechEnabled) const SizedBox(height: 16),
 
-              /* With photo button */
-              _buildModernButton(
-                label: 'Send with Photo',
-                onPressed: (disabled || !hasText)
-                    ? null
-                    : () => _sendWithPhoto(_ctrl.text),
-                gradientColors: [
-                  const Color(0xFFFF6B6B),
-                  const Color(0xFFEE5A52),
-                ],
-                isEnabled: !disabled && hasText,
-              ),
-            ],
-          ),
-        ],
+            Row(
+              children: [
+                _buildModernButton(
+                  label: 'Send Text Only',
+                  hint: hasText
+                      ? 'Double-tap to send your message as text only'
+                      : 'Button disabled - type a message first',
+                  onPressed: hasText ? () => _sendText(_ctrl.text) : null,
+                  gradientColors: [
+                    const Color(0xFF2196F3),
+                    const Color(0xFF1976D2),
+                  ],
+                  isEnabled: hasText && !widget.disabled,
+                ),
+
+                const SizedBox(width: 12),
+
+                _buildModernButton(
+                  label: 'Send with Photo',
+                  hint: hasText
+                      ? 'Double-tap to send your message with a photo from the camera'
+                      : 'Button disabled - type a message first',
+                  onPressed: hasText ? () => _sendWithPhoto(_ctrl.text) : null,
+                  gradientColors: [
+                    const Color(0xFFFF6B6B),
+                    const Color(0xFFEE5A52),
+                  ],
+                  isEnabled: hasText && !widget.disabled,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

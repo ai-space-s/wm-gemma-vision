@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../widgets/prompt_bar.dart';
 import 'sound_manager.dart';
 
@@ -11,12 +12,13 @@ class SpeechService {
   final FlutterTts _tts;
   final VoidCallback _onStateChanged;
   final GlobalKey<PromptBarState> _promptBarKey;
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   bool Function()? _isGeneratingCallback;
   bool _speechEnabled = false;
   bool _listening = false;
-  String _dictationText = '';
-  bool _sendButtonPressed = false; // Track if send was pressed while listening
+  bool _sendButtonPressed = false;
+  bool _isStoppingDictation = false; // ✅ Prevent multiple stops
 
   SpeechService({
     required FlutterTts tts,
@@ -44,8 +46,8 @@ class SpeechService {
     try {
       _speechEnabled = await _speech.initialize(
         onStatus: (status) {
-          // Restart if recognizer auto‑stops while key still held - no delay needed
-          if (_listening && status == 'notListening') {
+          // ✅ Only restart if we're actively listening and not in the process of stopping
+          if (_listening && !_isStoppingDictation && status == 'notListening') {
             _listenAgain();
           }
         },
@@ -89,7 +91,6 @@ class SpeechService {
       await _tts.speak(text);
     } catch (e) {
       debugPrint('Error speaking text: $e');
-      // Don't rethrow - TTS errors shouldn't break the app
     }
   }
 
@@ -98,31 +99,46 @@ class SpeechService {
     if (!_speechEnabled || _checkIsGenerating()) return;
 
     if (!_listening) {
-      _dictationText = ''; // new session
       _listening = true;
-      _sendButtonPressed = false; // Reset send button flag
+      _sendButtonPressed = false;
+      _isStoppingDictation = false; // ✅ Reset stopping flag
       _onStateChanged();
     }
 
-    _click();
+    await _playDictationStartSound();
     _listenAgain();
   }
 
   /// Stop dictation
   Future<void> stopDictation() async {
-    if (!_listening) return;
-    _click();
-    _listening = false;
-    await _speech.stop();
+    // ✅ Prevent multiple simultaneous stops
+    if (!_listening || _isStoppingDictation) return;
 
-    // Always read back if there's text and send button wasn't pressed
-    if (!_sendButtonPressed && _dictationText.trim().isNotEmpty) {
-      await _tts.speak(_dictationText.trim());
+    _isStoppingDictation = true;
+
+    try {
+      _listening = false;
+      await _speech.stop();
+
+      // ✅ Play stop sound first
+      await _playDictationStopSound();
+
+      // ✅ Wait for the sound to finish before TTS (dictation sounds are usually ~500ms)
+      // await Future.delayed(const Duration(milliseconds: 600));
+
+      // Get the current text from the prompt bar (more reliable than _dictationText)
+      final currentText = _promptBarKey.currentState?.currentText ?? '';
+
+      // Only read back if there's text and send button wasn't pressed
+      if (!_sendButtonPressed && currentText.trim().isNotEmpty) {
+        await _tts.speak(currentText.trim());
+      }
+    } finally {
+      // ✅ Always reset flags
+      _sendButtonPressed = false;
+      _isStoppingDictation = false;
+      _onStateChanged();
     }
-
-    // Reset flag for next session
-    _sendButtonPressed = false;
-    _onStateChanged();
   }
 
   /// Stop any ongoing TTS speech (used when send buttons are pressed)
@@ -145,41 +161,47 @@ class SpeechService {
   Future<void> toggleDictation() async =>
       _listening ? stopDictation() : startDictation();
 
-  /// Start listening again (internal) - using your original approach
+  /// Start listening again (internal)
   void _listenAgain() {
+    if (_isStoppingDictation || !_listening) return;
+
     _speech.listen(
       onResult: (val) {
-        if (!_listening) return;
+        if (!_listening || _isStoppingDictation) return;
 
-        final full = (_dictationText + ' ' + val.recognizedWords).trim();
-        _promptBarKey.currentState?.updateText(full);
-
-        if (val.finalResult) _dictationText = full;
+        final transcript = val.recognizedWords.trim(); // <- use as‑is
+        _promptBarKey.currentState?.updateText(transcript);
       },
       listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(
-        seconds: 60,
-      ), // Your original setting - this handles pauses well
+      pauseFor: const Duration(seconds: 60),
       partialResults: true,
       cancelOnError: false,
       listenMode: ListenMode.dictation,
     );
   }
 
-  /// Play click sound
-  void _click() => SystemSound.play(SystemSoundType.click);
-
-  /// Handle F2 key events for push-to-talk
-  KeyEventResult handleFocusKey(FocusNode _, KeyEvent e) {
-    if (e.logicalKey == LogicalKeyboardKey.f2) {
-      if (e is KeyDownEvent) {
-        startDictation();
-        return KeyEventResult.handled;
-      } else if (e is KeyUpEvent) {
-        stopDictation();
-        return KeyEventResult.handled;
-      }
+  /// Play dictation start sound
+  Future<void> _playDictationStartSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('dictation_start.mp3'));
+    } catch (e) {
+      debugPrint('Error playing dictation start sound: $e');
+      SystemSound.play(SystemSoundType.click);
     }
+  }
+
+  /// Play dictation stop sound
+  Future<void> _playDictationStopSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('dictation_stop.mp3'));
+    } catch (e) {
+      debugPrint('Error playing dictation stop sound: $e');
+      SystemSound.play(SystemSoundType.click);
+    }
+  }
+
+  /// Handle key events
+  KeyEventResult handleFocusKey(FocusNode _, KeyEvent e) {
     return KeyEventResult.ignored;
   }
 
@@ -187,5 +209,6 @@ class SpeechService {
   void dispose() {
     _speech.stop();
     _speech.cancel();
+    _audioPlayer.dispose();
   }
 }

@@ -1,4 +1,3 @@
-// lib/chat_page/chat_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -13,7 +12,8 @@ import 'models/message_models.dart';
 import 'handlers/initialization_handler.dart';
 import 'handlers/keyboard_handler.dart';
 import 'widgets/chat_ui_builder.dart';
-import 'widgets/settings_dialog.dart';
+import '../settings_page.dart';
+import 'widgets/semantic_button_registry.dart';
 import 'config/system_prompts.dart';
 
 class ChatPage extends StatefulWidget {
@@ -28,7 +28,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   bool _showMessages = false;
   bool _showCamera = true;
-  bool _settingsVisible = false;
 
   late FlutterTts _tts = FlutterTts();
   late StreamingTtsService _streamingTts = StreamingTtsService(_tts);
@@ -61,7 +60,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   late AnimationController _slideController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
-
   /* -------------------------------------------------------------- lifecycle */
   @override
   void initState() {
@@ -109,12 +107,16 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         onToggleCamera: () {
           if (mounted && !_disposed) setState(() => _showCamera = !_showCamera);
         },
-        onToggleSettings: _toggleSettings,
+        onToggleSettings: _navigateToSettings,
         onNewChat: _newChat,
         onQuickAction1: _quickAction1,
         onQuickAction2: _quickAction2,
         onQuickAction3: _quickAction3,
         onQuickAction4: _quickAction4,
+        onToggleVoice: () {
+          // This will be called when F2 is pressed
+          _speechService?.toggleDictation();
+        },
         isMounted: () => mounted,
         isDisposed: () => _disposed,
         setState: (fn) {
@@ -192,6 +194,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _speechService?.dispose();
     _textRecognition?.dispose();
     _rootFocus.dispose();
+    // Clear semantic button registry
+    SemanticButtonRegistry.clear();
     super.dispose();
   }
 
@@ -216,6 +220,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     if (_initialising) return ChatUIBuilder.buildLoadingScreen();
 
+    return _buildMainContent();
+  }
+
+  Widget _buildMainContent() {
+    // ✅ BACK TO WORKING APPROACH - Use original Shortcuts/Actions pattern
     return Shortcuts(
       shortcuts: _keyboardHandler!.shortcuts,
       child: Actions(
@@ -228,7 +237,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             backgroundColor: const Color(0xFFF8F9FA),
             appBar: ChatUIBuilder.buildCleanAppBar(
               onNewChat: _newChat,
-              onToggleSettings: _toggleSettings,
+              onToggleSettings: _navigateToSettings,
               isResetting: _chatHelpers!.resetting,
             ),
             body: FadeTransition(
@@ -286,29 +295,25 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
-  /* ---------------- toggle settings dialog ---------------- */
-  Future<void> _toggleSettings() async {
+  /* ---------------- navigate to settings page ---------------- */
+  Future<void> _navigateToSettings() async {
     if (_disposed || !mounted) return;
 
-    if (_settingsVisible) {
-      Navigator.of(context, rootNavigator: true).pop();
-      if (mounted && !_disposed) setState(() => _settingsVisible = false);
-      return;
-    }
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (context) =>
+            SettingsPage(systemContext: _systemCtx, backend: _backend),
+      ),
+    );
 
-    if (mounted && !_disposed) setState(() => _settingsVisible = true);
+    // Handle settings result
+    if (result != null && mounted && !_disposed) {
+      final newSystemContext = result['systemContext'] as String?;
+      final newBackend = result['backend'] as PreferredBackend?;
 
-    await showSettingsDialog(
-      context: context,
-      systemCtx: _systemCtx,
-      backend: _backend,
-      onDismiss: () {
-        if (mounted && !_disposed) setState(() => _settingsVisible = false);
-      },
-      onSave: (newCtx, newBackend) async {
-        if (!(mounted && !_disposed)) return;
+      if (newSystemContext != null && newBackend != null) {
         setState(() {
-          _systemCtx = newCtx;
+          _systemCtx = newSystemContext;
           _chatHelpers!.updateSystemContext(_systemCtx);
 
           if (_backend != newBackend) {
@@ -320,7 +325,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             _bootstrap();
           }
         });
-      },
-    );
+      }
+    }
   }
 }

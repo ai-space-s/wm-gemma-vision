@@ -4,8 +4,8 @@ import 'package:flutter/services.dart';
 import '../models/message_models.dart';
 import 'chat_bubble.dart';
 import 'prompt_bar.dart';
+import 'semantic_material_button.dart';
 
-/// Updated to remove camera service dependency
 class ChatUIBuilder {
   // ——————————————————— APP BAR ——————————————————— //
   static PreferredSizeWidget buildCleanAppBar({
@@ -26,13 +26,26 @@ class ChatUIBuilder {
         ),
       ),
       actions: [
-        TextButton.icon(
+        SemanticMaterialButton(
+          label: 'Settings',
+          hint: 'Double-tap to open settings page',
           onPressed: onToggleSettings,
-          icon: const Icon(Icons.tune_rounded, size: 18),
-          label: const Text('Settings'),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.blue.shade700,
+          child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.tune_rounded, size: 18, color: Colors.blue.shade700),
+                const SizedBox(width: 4),
+                Text(
+                  'Settings',
+                  style: TextStyle(
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(width: 16),
@@ -49,34 +62,43 @@ class ChatUIBuilder {
   }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildToggleButton(
-              icon: Icons.refresh_rounded,
-              label: 'New Chat',
-              isActive: true,
-              activeColor: Colors.teal, // Green
-              inactiveColor: const Color(0xFFE8F5E8), // Light green
-              onPressed: isResetting ? () {} : onNewChat,
-              disabled: isResetting,
+      child: FocusTraversalGroup(
+        policy: WidgetOrderTraversalPolicy(),
+        child: Row(
+          children: [
+            Expanded(
+              child: _buildToggleButton(
+                icon: Icons.refresh_rounded,
+                label: 'New Chat',
+                hint: isResetting
+                    ? 'New chat is currently processing'
+                    : 'Double-tap to start a new chat conversation',
+                isActive: true,
+                activeColor: Colors.teal, // Green
+                inactiveColor: const Color(0xFFE8F5E8), // Light green
+                onPressed: isResetting ? null : onNewChat,
+                disabled: isResetting,
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildToggleButton(
-              icon: showMessages
-                  ? Icons.chat_bubble_rounded
-                  : Icons.chat_bubble_outline_rounded,
-              label: showMessages ? 'Hide Messages' : 'Show Messages',
-              isActive: showMessages,
-              activeColor: Colors.blueAccent, // Blue
-              inactiveColor: const Color(0xFFE3F2FD), // Light blue
-              onPressed: onToggleMessages,
-              disabled: false,
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildToggleButton(
+                icon: showMessages
+                    ? Icons.chat_bubble_rounded
+                    : Icons.chat_bubble_outline_rounded,
+                label: showMessages ? 'Hide Messages' : 'Show Messages',
+                hint: showMessages
+                    ? 'Double-tap to hide the conversation messages'
+                    : 'Double-tap to show the conversation messages',
+                isActive: showMessages,
+                activeColor: Colors.blueAccent, // Blue
+                inactiveColor: const Color(0xFFE3F2FD), // Light blue
+                onPressed: onToggleMessages,
+                disabled: false,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -87,7 +109,8 @@ class ChatUIBuilder {
     required bool isActive,
     required Color activeColor,
     required Color inactiveColor,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
+    required String hint,
     bool disabled = false,
   }) {
     Color backgroundColor;
@@ -108,33 +131,39 @@ class ChatUIBuilder {
       iconColor = activeColor;
     }
 
-    return SizedBox(
-      height: 56,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: disabled ? null : onPressed,
-          borderRadius: BorderRadius.circular(16),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: iconColor, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: textColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+    return SemanticMaterialButton(
+      label: label,
+      hint: hint,
+      onPressed: disabled ? null : onPressed,
+      disabled: disabled,
+      child: SizedBox(
+        height: 56,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: null, // Handled by semantic wrapper
+            borderRadius: BorderRadius.circular(16),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, color: iconColor, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -218,33 +247,41 @@ class ChatUIBuilder {
           colors: [Colors.orange.shade400, Colors.deepOrange.shade500],
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+      child: Semantics(
+        label: isGenerating
+            ? (isSpeaking
+                  ? 'Generating response and speaking'
+                  : 'Generating response')
+            : 'Speaking response',
+        hint: 'Please wait while the AI processes your request',
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Text(
-              isGenerating
-                  ? (isSpeaking
-                        ? 'Generating and Speaking…'
-                        : 'Generating Response…')
-                  : 'Speaking…',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 18,
+              const SizedBox(width: 16),
+              Text(
+                isGenerating
+                    ? (isSpeaking
+                          ? 'Generating and Speaking…'
+                          : 'Generating Response…')
+                    : 'Speaking…',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
