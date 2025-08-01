@@ -308,7 +308,7 @@ class ChatHelpers {
           await _streamingTts.onMessageComplete();
         },
       );
-    } catch (e, stackTrace) {
+    } catch (e) {
       await _streamingTts.stopLoading();
       final errorMsg = 'Failed to send text message: $e';
       messages.add(ChatMessage.text('Error: $e', isUser: false));

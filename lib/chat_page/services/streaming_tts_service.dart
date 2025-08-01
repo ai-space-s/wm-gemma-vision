@@ -1,6 +1,5 @@
 // lib/chat_page/services/streaming_tts_service.dart
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:remove_markdown/remove_markdown.dart';
@@ -24,10 +23,8 @@ class StreamingTtsService {
   bool _isLoading = false;
   bool _isProcessing = false;
   bool _messageComplete = false;
-  bool _hasStartedSpeaking = false;
   int _lastSpokenLength = 0; // position in the *cleaned* text
   int _tokensSinceLastSpeak = 0;
-  int _totalTokensReceived = 0;
 
   StreamingTtsService(this._tts) {
     _configureTts();
@@ -61,7 +58,6 @@ class StreamingTtsService {
   void addText(String newToken, String currentFullText) {
     _buffer = currentFullText;
     _tokensSinceLastSpeak++;
-    _totalTokensReceived++;
 
     // 1️⃣  If the token itself contains sentence‑ending punctuation,
     //     try to process the buffer *right now*.
@@ -159,7 +155,6 @@ class StreamingTtsService {
       try {
         await _tts.speak(segment);
         _previousSegment = segment;
-        _hasStartedSpeaking = true;
       } catch (e) {
         debugPrint('[TTS] TTS error: $e');
         break;
@@ -282,8 +277,6 @@ class StreamingTtsService {
     _pendingSegments.clear();
     _isProcessing = false;
     _previousSegment = '';
-    _hasStartedSpeaking = false;
-    _totalTokensReceived = 0;
     isSpeaking.value = false;
   }
 
