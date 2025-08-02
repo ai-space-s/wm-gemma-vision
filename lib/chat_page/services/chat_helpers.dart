@@ -337,8 +337,13 @@ class ChatHelpers {
   }
 
   Future<void> quickAction3(List<ChatMessage> messages) async {
-    await _announceStateChange('Looking for exit');
-    await captureAndSend(SystemPrompts.findExit, messages, isQuickAction: true);
+    await _announceStateChange('What is this?');
+    //await captureAndSend(SystemPrompts.findExit, messages, isQuickAction: true);
+    await captureAndSend(
+      SystemPrompts.whatIsThis,
+      messages,
+      isQuickAction: true,
+    );
   }
 
   Future<void> quickAction4(List<ChatMessage> messages) async {
