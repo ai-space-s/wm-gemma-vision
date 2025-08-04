@@ -1,9 +1,16 @@
 // lib/chat_page/services/streaming_tts_service.dart
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:remove_markdown/remove_markdown.dart';
 import 'sound_manager.dart';
+
+/// Internal representation of a segment with its start index in the cleaned text.
+class _Segment {
+  final String text;
+  final int start; // start index in cleaned buffer
+  _Segment(this.text, this.start);
+}
 
 /// Streaming TTS Service for reading AI responses as they're generated.
 class StreamingTtsService {
@@ -11,20 +18,25 @@ class StreamingTtsService {
   final FlutterTts _tts;
 
   // Buffers & state
-  final List<String> _pendingSegments = [];
+  final List<_Segment> _pendingSegments = [];
   String _buffer = '';
   String _previousSegment = '';
-
-  // Timers
-  Timer? _bufferTimer;
-  Timer? _fallbackTimer;
 
   // Counters & flags
   bool _isLoading = false;
   bool _isProcessing = false;
   bool _messageComplete = false;
   int _lastSpokenLength = 0; // position in the *cleaned* text
-  int _tokensSinceLastSpeak = 0;
+
+  int _lastProgressEnd = 0; // global position in cleaned text from progress
+  int _currentSegmentStart = 0;
+
+  // Resume strategy ---------------------------------------------------
+  int _resumeAttempts = 0;
+  static const int _maxResumeAttempts = 5;
+  static const Duration _resumeDelay = Duration(seconds: 6); // TalkBack ~5 s
+  bool _resumeScheduled = false;
+  bool _suppressResumeOnCancel = false;
 
   StreamingTtsService(this._tts) {
     _configureTts();
@@ -35,11 +47,74 @@ class StreamingTtsService {
     _tts.setVolume(0.9);
     _tts.setPitch(1.0);
     _tts.awaitSpeakCompletion(true);
+
+    // Callbacks -------------------------------------------------------
+    _tts.setStartHandler(() {
+      _resumeScheduled = false;
+    });
+
+    _tts.setProgressHandler((String text, int start, int end, String word) {
+      // progress is relative to current segment; map to global cleaned buffer index
+      _lastProgressEnd = _currentSegmentStart + end;
+    });
+
+    _tts.setCompletionHandler(() {
+      _resumeAttempts = 0;
+    });
+
+    _tts.setCancelHandler(() {
+      if (!_suppressResumeOnCancel) _scheduleResume();
+    });
+
+    _tts.setPauseHandler(() {
+      if (!_suppressResumeOnCancel) _scheduleResume();
+    });
+  }
+
+  void _scheduleResume() {
+    if (_resumeScheduled || _resumeAttempts >= _maxResumeAttempts) return;
+    _resumeAttempts++;
+    _resumeScheduled = true;
+
+    final cleanBuffer = _cleanTextForTts(_buffer);
+    int resumeFrom = _lastProgressEnd;
+    if (resumeFrom <= 0 || resumeFrom < _lastSpokenLength - 5) {
+      resumeFrom = _lastSpokenLength;
+    }
+    resumeFrom = resumeFrom.clamp(0, cleanBuffer.length);
+
+    Future.delayed(_resumeDelay, () {
+      _resumeScheduled = false;
+      _speak(from: resumeFrom);
+    });
+  }
+
+  Future<void> _speak({int from = 0}) async {
+    final cleanBuffer = _cleanTextForTts(_buffer);
+    final String text = from < cleanBuffer.length
+        ? cleanBuffer.substring(from)
+        : '';
+
+    // Only force stop if we're regressing significantly to avoid clicks
+    final bool shouldForceStop = from < _lastProgressEnd - 10;
+    if (shouldForceStop) {
+      _suppressResumeOnCancel = true;
+      try {
+        await _tts.stop();
+      } catch (_) {}
+      _suppressResumeOnCancel = false;
+    }
+
+    if (text.isEmpty) return;
+
+    try {
+      await _tts.speak(text, focus: false);
+    } catch (_) {}
   }
 
   // ───────────────────────────────────────────────────────────
-  // PUBLIC API
-  // ───────────────────────────────────────────────────────────
+  // PUBLIC API
+  // ───────────────────────────────────────────
   Future<void> startLoading() async {
     if (_isLoading) return;
     _isLoading = true;
@@ -54,84 +129,51 @@ class StreamingTtsService {
   }
 
   /// Consume one streaming token.
-  /// Starts speaking as soon as a **complete sentence** is available.
+  /// Starts speaking once a complete sentence arrives.
   void addText(String newToken, String currentFullText) {
     _buffer = currentFullText;
-    _tokensSinceLastSpeak++;
 
-    // 1️⃣  If the token itself contains sentence‑ending punctuation,
-    //     try to process the buffer *right now*.
-    if (RegExp(r'[.!?]').hasMatch(newToken)) {
-      _processBuffer();
-    }
-
-    // 2️⃣  Make sure _processBuffer() runs at least every 150 ms while streaming.
-    _bufferTimer ??= Timer(const Duration(milliseconds: 150), () {
-      _bufferTimer = null; // allow the next schedule
-      _processBuffer();
-    });
-
-    // 3️⃣  Fallback: if nothing was spoken for a while, force partial output.
-    if (_tokensSinceLastSpeak >= 6 || _getUnspokenText().length > 30) {
-      _fallbackTimer?.cancel();
-      _fallbackTimer = Timer(const Duration(milliseconds: 200), _forceSpeak);
-    }
+    // Immediately process buffer on any new token
+    _processBuffer();
   }
 
   Future<void> onMessageComplete() async {
     _messageComplete = true;
     await stopLoading();
-    _bufferTimer?.cancel();
-    _fallbackTimer?.cancel();
-
-    // Ensure natural ending punctuation.
-    if (_buffer.trim().isNotEmpty && !RegExp(r'[.!?]\s*$').hasMatch(_buffer)) {
-      _buffer += '.';
-    }
-
     await _forceCompleteReading();
   }
 
   void stop() => _hardReset();
   void reset() => _hardReset();
+
   void dispose() {
     _hardReset();
     isSpeaking.dispose();
   }
 
-  // ───────────────────────────────────────────────────────────
-  // BUFFER HANDLING
-  // ───────────────────────────────────────────────────────────
-  void _processBuffer() {
-    if (_buffer.isEmpty || _isProcessing) return;
-
+  // ────────────────────────────────────────────────
+  // BUFFER HANDLING ( now sentence-based )
+  // ────────────────────────────────────────────────
+  Future<void> _processBuffer() async {
     final cleanText = _cleanTextForTts(_buffer);
+    if (cleanText.isEmpty || _isProcessing) return;
     if (cleanText.length <= _lastSpokenLength) return;
 
     final newContent = cleanText.substring(_lastSpokenLength);
-    if (newContent.trim().isEmpty) return;
 
-    // Detect complete sentences.
+    // Collect only complete sentences; leave any trailing fragment for later
     final sentences = _findCompleteSentences(newContent);
+    if (sentences.isEmpty) return;
 
-    if (sentences.isNotEmpty) {
-      final slice = sentences.join(' ');
-      _pendingSegments.addAll(sentences);
-      _lastSpokenLength += slice.length;
-      _tokensSinceLastSpeak = 0;
-      if (!_isProcessing) _processNextSegment();
+    int offset = _lastSpokenLength;
+    for (final sentence in sentences) {
+      _pendingSegments.add(_Segment(sentence.trim(), offset));
+      offset += sentence.length;
     }
-  }
+    _lastSpokenLength = offset;
 
-  void _forceSpeak() {
-    if (_buffer.isEmpty || _isProcessing) return;
-
-    final unspoken = _getUnspokenText();
-    if (unspoken.isNotEmpty && unspoken.length > 5) {
-      _pendingSegments.add(unspoken);
-      _lastSpokenLength = _cleanTextForTts(_buffer).length;
-      _tokensSinceLastSpeak = 0;
-      if (!_isProcessing) _processNextSegment();
+    if (!_isProcessing) {
+      await _processNextSegment();
     }
   }
 
@@ -146,17 +188,19 @@ class StreamingTtsService {
         isSpeaking.value = true;
       }
 
-      final segment = _pendingSegments.removeAt(0).trim();
-      if (segment.isEmpty || segment == _previousSegment) continue;
+      final segmentObj = _pendingSegments.removeAt(0);
+      final segment = segmentObj.text.trim();
+      _currentSegmentStart = segmentObj.start;
 
-      final isPurePunctuation = RegExp(r'^[.!?,;:]+$').hasMatch(segment);
-      if (isPurePunctuation && _pendingSegments.isNotEmpty) continue;
+      if (segment.isEmpty || segment == _previousSegment) continue;
+      if (RegExp(r'^[.!?,;:]+$').hasMatch(segment) &&
+          _pendingSegments.isNotEmpty)
+        continue;
 
       try {
         await _tts.speak(segment);
         _previousSegment = segment;
-      } catch (e) {
-        debugPrint('[TTS] TTS error: $e');
+      } catch (_) {
         break;
       }
     }
@@ -166,9 +210,6 @@ class StreamingTtsService {
     if (_pendingSegments.isEmpty) {
       if (_messageComplete) {
         await _forceCompleteReading();
-      } else if (_buffer.isEmpty) {
-        isSpeaking.value = false;
-        if (_isLoading) await SoundManager.instance.resumeLoading();
       } else {
         final unspoken = _getUnspokenText();
         if (unspoken.trim().isEmpty) {
@@ -179,11 +220,12 @@ class StreamingTtsService {
     }
   }
 
-  // ───────────────────────────────────────────────────────────
-  // FORCE COMPLETE
-  // ───────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────
+  // FORCE COMPLETE
+  // ───────────────────────────────────────────────
   Future<void> _forceCompleteReading() async {
     final cleanBuffer = _cleanTextForTts(_buffer);
+
     if (cleanBuffer.trim().isEmpty) {
       isSpeaking.value = false;
       return;
@@ -194,7 +236,7 @@ class StreamingTtsService {
         : '';
 
     if (unspoken.isNotEmpty) {
-      _pendingSegments.add(unspoken);
+      _pendingSegments.add(_Segment(unspoken, _lastSpokenLength));
       _lastSpokenLength = cleanBuffer.length;
       if (!_isProcessing) await _processNextSegment();
     } else {
@@ -202,9 +244,9 @@ class StreamingTtsService {
     }
   }
 
-  // ───────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────
   // TEXT UTILITIES
-  // ───────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────
   String _getUnspokenText() {
     final cleaned = _cleanTextForTts(_buffer);
     if (cleaned.length <= _lastSpokenLength) return '';
@@ -236,7 +278,7 @@ class StreamingTtsService {
     }
     if (out.isNotEmpty) return out;
 
-    // 3. Word‑count fallback
+    // 3. Word-count fallback
     if (text.length > 8) {
       final words = text.split(' ');
       var buf = '';
@@ -253,7 +295,7 @@ class StreamingTtsService {
     return out;
   }
 
-  /// Strip Markdown & normalise whitespace but **keep single `. ! ?`**.
+  /// Strip Markdown & normalize whitespace but **keep single `. ! ?`**.
   String _cleanTextForTts(String text) {
     String cleanedText = text
         .removeMarkdown()
@@ -266,23 +308,25 @@ class StreamingTtsService {
     return cleanedText.trim();
   }
 
-  // ───────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────
   // RESET & CLEANUP
-  // ───────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────
   void _resetState() {
     _messageComplete = false;
     _buffer = '';
     _lastSpokenLength = 0;
-    _tokensSinceLastSpeak = 0;
     _pendingSegments.clear();
     _isProcessing = false;
     _previousSegment = '';
     isSpeaking.value = false;
+    _lastProgressEnd = 0;
+    _currentSegmentStart = 0;
+    _resumeAttempts = 0;
+    _resumeScheduled = false;
+    _suppressResumeOnCancel = false;
   }
 
   void _hardReset() {
-    _bufferTimer?.cancel();
-    _fallbackTimer?.cancel();
     _tts.stop();
     _resetState();
     stopLoading();

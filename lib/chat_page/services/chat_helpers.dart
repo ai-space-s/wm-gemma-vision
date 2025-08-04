@@ -173,15 +173,12 @@ class ChatHelpers {
       _onStateChanged();
 
       await _speechService.playWooshSound();
-
+      _isGenerating = true;
+      _onStateChanged();
       // Only announce message type if it's not a quick action
       if (!isQuickAction) {
         await _speechService.announceMessageType(true);
       }
-
-      _isGenerating = true;
-      _onStateChanged();
-
       await _streamingTts.startLoading();
 
       String extractedText = '';
@@ -263,11 +260,9 @@ class ChatHelpers {
 
       // Now start the actual processing
       await _speechService.playWooshSound();
-
-      await _speechService.announceMessageType(false);
-
       _isGenerating = true;
       _onStateChanged();
+      await _speechService.announceMessageType(false);
 
       await _streamingTts.startLoading();
 

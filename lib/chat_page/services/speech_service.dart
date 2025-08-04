@@ -1,5 +1,7 @@
 // lib/chat_page/services/speech_service.dart
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -7,9 +9,10 @@ import 'package:audioplayers/audioplayers.dart';
 import '../widgets/prompt_bar.dart';
 import 'sound_manager.dart';
 
+/// Handles dictation, playback sounds, and accessibility announcements.
 class SpeechService {
   final SpeechToText _speech = SpeechToText();
-  final FlutterTts _tts;
+  final FlutterTts _tts; // still useful for long‑form playback elsewhere
   final VoidCallback _onStateChanged;
   final GlobalKey<PromptBarState> _promptBarKey;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -18,7 +21,7 @@ class SpeechService {
   bool _speechEnabled = false;
   bool _listening = false;
   bool _sendButtonPressed = false;
-  bool _isStoppingDictation = false; // ✅ Prevent multiple stops
+  bool _isStoppingDictation = false;
 
   SpeechService({
     required FlutterTts tts,
@@ -27,81 +30,64 @@ class SpeechService {
     required bool Function() isGenerating,
   }) : _tts = tts,
        _onStateChanged = onStateChanged,
-       _promptBarKey = promptBarKey;
+       _promptBarKey = promptBarKey {
+    updateIsGeneratingCallback(isGenerating);
+  }
 
-  // Getters
+  // ───────────────────────────────── Public state ────────────────────────────
   bool get speechEnabled => _speechEnabled;
   bool get listening => _listening;
 
+  // ───────────────────────────────── Internals ──────────────────────────────
   void updateIsGeneratingCallback(bool Function() callback) {
     _isGeneratingCallback = callback;
   }
 
-  bool _checkIsGenerating() {
-    return _isGeneratingCallback?.call() ?? false;
-  }
+  bool _checkIsGenerating() => _isGeneratingCallback?.call() ?? false;
 
-  /// Initialize speech recognition
+  /// One‑time speech‑recognition init.
   Future<void> initialize() async {
     try {
       _speechEnabled = await _speech.initialize(
         onStatus: (status) {
-          // ✅ Only restart if we're actively listening and not in the process of stopping
           if (_listening && !_isStoppingDictation && status == 'notListening') {
             _listenAgain();
           }
         },
-        onError: (error) {
-          debugPrint('Speech error: $error');
-        },
+        onError: (error) => debugPrint('Speech error: $error'),
       );
-      _onStateChanged();
     } catch (e) {
       debugPrint('Speech initialization error: $e');
+    } finally {
+      _onStateChanged();
     }
   }
 
-  Future<void> playWooshSound() async {
-    await SoundManager.instance.playWoosh();
-  }
+  // ───────────────────────────────── Sounds ─────────────────────────────────
+  Future<void> playWooshSound() => SoundManager.instance.playWoosh();
 
+  /// Short announcement describing what will be sent.
   Future<void> announceMessageType(bool hasPhoto) async {
-    try {
-      final message = hasPhoto
-          ? "Sending text with photo"
-          : "Sending text only";
-      await _tts.speak(message);
-    } catch (e) {
-      debugPrint('Error announcing message type: $e');
-    }
+    final msg = hasPhoto ? 'Sending text with photo' : 'Sending text only';
+    _announce(msg);
   }
 
-  /// Speak text using TTS (for errors and notifications)
-  Future<void> speak(String text) async {
-    try {
-      if (text.trim().isEmpty) return;
+  /// Convenience wrapper for brief notifications.
+  Future<void> speak(String message) async => _announce(message.trim());
 
-      // Stop any ongoing speech first
-      await _tts.stop();
-
-      // Wait a moment to ensure it's stopped
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      // Speak the text
-      await _tts.speak(text);
-    } catch (e) {
-      debugPrint('Error speaking text: $e');
-    }
+  void _announce(String message) {
+    if (message.isEmpty) return;
+    SemanticsService.announce(message, ui.TextDirection.ltr);
   }
 
-  /// Start dictation
+  // ───────────────────────────────── Dictation ──────────────────────────────
   Future<void> startDictation() async {
     if (!_speechEnabled || _checkIsGenerating()) return;
 
     if (!_listening) {
       _listening = true;
       _sendButtonPressed = false;
-      _isStoppingDictation = false; // ✅ Reset stopping flag
+      _isStoppingDictation = false;
       _onStateChanged();
     }
 
@@ -109,68 +95,48 @@ class SpeechService {
     _listenAgain();
   }
 
-  /// Stop dictation
   Future<void> stopDictation() async {
-    // ✅ Prevent multiple simultaneous stops
     if (!_listening || _isStoppingDictation) return;
-
     _isStoppingDictation = true;
 
     try {
       _listening = false;
       await _speech.stop();
-
-      // ✅ Play stop sound first
       await _playDictationStopSound();
 
-      // ✅ Wait for the sound to finish before TTS (dictation sounds are usually ~500ms)
-      // await Future.delayed(const Duration(milliseconds: 600));
-
-      // Get the current text from the prompt bar (more reliable than _dictationText)
       final currentText = _promptBarKey.currentState?.currentText ?? '';
-
-      // Only read back if there's text and send button wasn't pressed
       if (!_sendButtonPressed && currentText.trim().isNotEmpty) {
-        await _tts.speak(currentText.trim());
+        _announce(currentText.trim());
       }
     } finally {
-      // ✅ Always reset flags
       _sendButtonPressed = false;
       _isStoppingDictation = false;
       _onStateChanged();
     }
   }
 
-  /// Stop any ongoing TTS speech (used when send buttons are pressed)
+  /// Stops any playing TTS that might still be active from other parts of the app.
   Future<void> stopTts() async {
     try {
-      // Mark that send button was pressed while listening
-      if (_listening) {
-        _sendButtonPressed = true;
-      }
-
+      if (_listening) _sendButtonPressed = true;
       await _tts.stop();
-      // Wait a moment to ensure it's actually stopped
       await Future.delayed(const Duration(milliseconds: 50));
     } catch (e) {
       debugPrint('Error stopping TTS: $e');
     }
   }
 
-  /// Toggle dictation on/off
-  Future<void> toggleDictation() async =>
+  Future<void> toggleDictation() =>
       _listening ? stopDictation() : startDictation();
 
-  /// Start listening again (internal)
+  // ───────────────────────────────── Speech‑to‑text engine ──────────────────
   void _listenAgain() {
     if (_isStoppingDictation || !_listening) return;
 
     _speech.listen(
       onResult: (val) {
         if (!_listening || _isStoppingDictation) return;
-
-        final transcript = val.recognizedWords.trim(); // <- use as‑is
-        _promptBarKey.currentState?.updateText(transcript);
+        _promptBarKey.currentState?.updateText(val.recognizedWords.trim());
       },
       listenFor: const Duration(minutes: 5),
       pauseFor: const Duration(seconds: 60),
@@ -180,7 +146,7 @@ class SpeechService {
     );
   }
 
-  /// Play dictation start sound
+  // ───────────────────────────────── Asset sounds ───────────────────────────
   Future<void> _playDictationStartSound() async {
     try {
       await _audioPlayer.play(AssetSource('dictation_start.mp3'));
@@ -190,7 +156,6 @@ class SpeechService {
     }
   }
 
-  /// Play dictation stop sound
   Future<void> _playDictationStopSound() async {
     try {
       await _audioPlayer.play(AssetSource('dictation_stop.mp3'));
@@ -200,12 +165,10 @@ class SpeechService {
     }
   }
 
-  /// Handle key events
-  KeyEventResult handleFocusKey(FocusNode _, KeyEvent e) {
-    return KeyEventResult.ignored;
-  }
+  // ───────────────────────────────── Misc ───────────────────────────────────
+  KeyEventResult handleFocusKey(FocusNode _, KeyEvent __) =>
+      KeyEventResult.ignored;
 
-  /// Dispose resources
   void dispose() {
     _speech.stop();
     _speech.cancel();
