@@ -1,4 +1,5 @@
-// lib/settings_page.dart
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -28,6 +29,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // Platform detection
   bool get _isIOS => !kIsWeb && Platform.isIOS;
+  bool get _isAndroid => !kIsWeb && Platform.isAndroid;
+
+  // Page-wide focus scope so arrow keys hit every focusable
+  final FocusScopeNode _pageScope = FocusScopeNode(
+    debugLabel: 'SettingsPageScope',
+  );
 
   @override
   void initState() {
@@ -36,8 +43,6 @@ class _SettingsPageState extends State<SettingsPage> {
       text: widget.systemContext,
     );
     _selectedBackend = widget.backend;
-
-    // Listen for changes
     _systemContextController.addListener(_onTextChanged);
   }
 
@@ -45,6 +50,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _systemContextController.removeListener(_onTextChanged);
     _systemContextController.dispose();
+    _pageScope.dispose();
     SemanticButtonRegistry.clear();
     super.dispose();
   }
@@ -69,21 +75,17 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _saveSettings() {
-    Navigator.of(context).pop({
-      'systemContext': _systemContextController.text.trim(),
-      'backend': _selectedBackend,
-    });
-  }
+  void _save() => Navigator.of(context).pop({
+    'systemContext': _systemContextController.text.trim(),
+    'backend': _selectedBackend,
+  });
 
-  void _cancelSettings() {
-    Navigator.of(context).pop();
-  }
+  void _cancel() => Navigator.of(context).pop();
 
   @override
   Widget build(BuildContext context) {
     final shortcuts = <LogicalKeySet, Intent>{
-      // Arrow navigation
+      // Arrow / Tab navigation
       LogicalKeySet(LogicalKeyboardKey.arrowDown): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowRight): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowUp): const PreviousFocusIntent(),
@@ -92,12 +94,12 @@ class _SettingsPageState extends State<SettingsPage> {
       LogicalKeySet(LogicalKeyboardKey.tab, LogicalKeyboardKey.shift):
           const PreviousFocusIntent(),
 
-      // Standard activation
+      // Activate
       LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
       LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
     };
 
-    // Add iOS-specific VoiceOver shortcut
+    // iOS VO triple-tap
     if (_isIOS) {
       shortcuts[LogicalKeySet(
             LogicalKeyboardKey.control,
@@ -111,7 +113,6 @@ class _SettingsPageState extends State<SettingsPage> {
       shortcuts: shortcuts,
       child: Actions(
         actions: {
-          // Cross-platform ActivateIntent handler
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
               SemanticButtonRegistry.invokeCurrentSemanticTap();
@@ -119,167 +120,101 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
         },
-        child: Scaffold(
-          backgroundColor: const Color(0xFFF8F9FA),
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: Colors.white,
-            systemOverlayStyle: SystemUiOverlayStyle.dark,
-            leading: SemanticMaterialButton(
-              label: 'Back',
-              hint: 'Double-tap to go back to chat',
-              onPressed: _cancelSettings,
-              child: const Icon(
-                Icons.arrow_back_ios_rounded,
-                color: Colors.blue,
-              ),
-            ),
-            title: const Text(
-              'Settings',
-              style: TextStyle(
-                color: Colors.black87,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            actions: [
-              if (_hasChanges)
-                SemanticMaterialButton(
-                  label: 'Save',
-                  hint: 'Double-tap to save changes and return to chat',
-                  onPressed: _saveSettings,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Save',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+        child: FocusScope(
+          node: _pageScope,
+          child: Scaffold(
+            backgroundColor: const Color(0xFFF8F9FA),
+            appBar: AppBar(
+              elevation: 0,
+              backgroundColor: Colors.white,
+              systemOverlayStyle: SystemUiOverlayStyle.dark,
+              leading: Focus(
+                autofocus: true, // initial TalkBack focus here
+                child: SemanticMaterialButton(
+                  label: 'Back',
+                  hint: 'Double-tap to return to chat',
+                  onPressed: _cancel,
+                  child: const Icon(
+                    Icons.arrow_back_ios_rounded,
+                    color: Colors.blue,
+                    semanticLabel: 'Back to chat',
                   ),
                 ),
-              const SizedBox(width: 16),
-            ],
-          ),
-          body: FocusTraversalGroup(
-            policy: WidgetOrderTraversalPolicy(),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // System Context Section
-                  _buildSectionHeader(
-                    'System Context',
-                    'This context guides all AI responses',
+              ),
+              title: Semantics(
+                header: true,
+                child: Text(
+                  'Settings',
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 16),
-
-                  Semantics(
-                    label: 'System context text field',
-                    hint:
-                        'Enter the context that will guide all AI responses. Currently ${_systemContextController.text.length} characters.',
-                    textField: true,
+                ),
+              ),
+              actions: [
+                if (_hasChanges)
+                  SemanticMaterialButton(
+                    label: 'Save',
+                    hint: 'Double-tap to save changes and return to chat',
+                    onPressed: _save,
                     child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.grey.shade300,
-                          width: 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
                       ),
-                      child: TextField(
-                        controller: _systemContextController,
-                        maxLines: 5,
-                        style: TextStyle(
-                          color: Colors.grey.shade800,
-                          fontSize: 16,
-                          height: 1.5,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
                         ),
-                        decoration: InputDecoration(
-                          hintText: 'Enter system context for AI responses...',
-                          hintStyle: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: 16,
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(20),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'Save',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ),
-
-                  const SizedBox(height: 32),
-
-                  // AI Backend Section
-                  _buildSectionHeader(
-                    'AI Backend',
-                    'Choose processing method for AI operations',
-                  ),
-                  const SizedBox(height: 16),
-
-                  _buildBackendSelector(),
-
-                  const SizedBox(height: 32),
-
-                  // Keyboard Shortcuts Section
-                  _buildSectionHeader(
-                    'Keyboard Shortcuts',
-                    'Available keyboard commands for the app',
-                  ),
-                  const SizedBox(height: 16),
-
-                  _buildShortcutsSection(),
-
-                  const SizedBox(height: 40),
-
-                  // Action Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildActionButton(
-                          label: 'Cancel',
-                          hint:
-                              'Double-tap to cancel changes and return to chat',
-                          onPressed: _cancelSettings,
-                          isPrimary: false,
-                        ),
+                const SizedBox(width: 16),
+              ],
+            ),
+            body: FocusTraversalGroup(
+              policy: WidgetOrderTraversalPolicy(),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _wrapFocus(_buildAccessibilityAdvice()),
+                    const SizedBox(height: 32),
+                    _wrapFocus(
+                      _buildSectionHeader(
+                        'System Context',
+                        'This context guides all AI responses',
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildActionButton(
-                          label: 'Save Changes',
-                          hint: _hasChanges
-                              ? 'Double-tap to save changes and return to chat'
-                              : 'No changes to save',
-                          onPressed: _hasChanges ? _saveSettings : null,
-                          isPrimary: true,
-                          isEnabled: _hasChanges,
-                        ),
+                    ),
+                    const SizedBox(height: 16),
+                    _wrapFocus(_buildContextField()),
+                    const SizedBox(height: 40),
+                    _wrapFocus(
+                      _buildSectionHeader(
+                        'Controller Layout',
+                        'Button assignments for your controller',
                       ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 32),
-                ],
+                    ),
+                    const SizedBox(height: 20),
+                    _buildShortcutsTable(),
+                    const SizedBox(height: 40),
+                    _wrapFocus(_buildControllerSetup()),
+                    const SizedBox(height: 40),
+                    _wrapFocus(_buildBackendSelector()),
+                    const SizedBox(height: 40),
+                    _buildActionRow(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -288,298 +223,383 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildBackendSelector() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+  // ────────────────────────────── Helpers ──────────────────────────────
+
+  /// Makes any widget focusable so arrow-keys stop there.
+  Widget _wrapFocus(Widget child) => Focus(child: child);
+
+  Widget _buildAccessibilityAdvice() {
+    final platform = _isIOS
+        ? 'iOS VoiceOver'
+        : _isAndroid
+        ? 'Android TalkBack'
+        : 'your screen reader';
+    return Semantics(
+      label:
+          'Controller tip: For best experience, temporarily turn off $platform when using a controller.',
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.blue.shade50, Colors.indigo.shade50],
           ),
-        ],
-      ),
-      child: Focus(
-        onFocusChange: (hasFocus) {
-          debugPrint('Backend dropdown focus change: $hasFocus');
-        },
-        child: DropdownButtonFormField<PreferredBackend>(
-          value: _selectedBackend,
-          dropdownColor: Colors.white,
-          isExpanded: true,
-          itemHeight: 64, // Set explicit item height to prevent overflow
-          style: TextStyle(color: Colors.grey.shade800, fontSize: 16),
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.all(20),
-          ),
-          items: PreferredBackend.values.map((backend) {
-            return DropdownMenuItem(
-              value: backend,
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: backend == PreferredBackend.cpu
-                          ? Colors.blue.shade50
-                          : Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Icon(
-                      backend == PreferredBackend.cpu
-                          ? Icons.memory_rounded
-                          : Icons.developer_board_rounded,
-                      color: backend == PreferredBackend.cpu
-                          ? Colors.blue.shade600
-                          : Colors.green.shade600,
-                      size: 16,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          backend.name.toUpperCase(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                        Text(
-                          backend == PreferredBackend.cpu
-                              ? 'General processing'
-                              : 'Accelerated processing',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 10,
-                            height: 1.0,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.blue.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.lightbulb_outline_rounded, color: Colors.blue.shade600),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'For best experience, temporarily turn off $platform when using a controller.',
+                style: TextStyle(
+                  color: Colors.blue.shade700,
+                  fontSize: 16,
+                  height: 1.4,
+                ),
               ),
-            );
-          }).toList(),
-          onChanged: _onBackendChanged,
-          // Custom semantics for the dropdown
-          hint: Semantics(
-            label: 'AI backend selection dropdown',
-            hint:
-                'Choose between CPU or GPU processing. Currently selected: ${_selectedBackend.name.toUpperCase()}. Press Enter to open dropdown.',
-            child: const SizedBox.shrink(),
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title, String description) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
+  Widget _buildSectionHeader(String title, String desc) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Semantics(
+        header: true,
+        child: Text(
           title,
           style: TextStyle(
             color: Colors.grey.shade800,
-            fontSize: 24,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          description,
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+      ),
+      const SizedBox(height: 4),
+      Text(desc, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+    ],
+  );
+
+  Widget _buildContextField() => Semantics(
+    label: 'System context text field',
+    textField: true,
+    child: Container(
+      decoration: _boxDecoration(),
+      child: TextField(
+        controller: _systemContextController,
+        maxLines: 5,
+        decoration: InputDecoration(
+          hintText: 'Enter system context for AI responses...',
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.all(20),
         ),
+      ),
+    ),
+  );
+
+  BoxDecoration _boxDecoration() => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(color: Colors.grey.shade300),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.05),
+        blurRadius: 10,
+        offset: const Offset(0, 2),
+      ),
+    ],
+  );
+
+  // ── Controller layout table ──
+  Widget _buildShortcutsTable() {
+    const data = [
+      ('Right Bumper', 'F1', 'Send with photo'),
+      ('Large Right Trigger', 'F2', 'Toggle voice input'),
+      ('Plus icon', 'F3', 'New chat'),
+      ('X top round button', 'F4', 'Find exit'),
+      ('A right round button', 'F5', 'Describe room'),
+      ('Y left round button', 'F6', 'Read text'),
+      ('B bottom round button', 'F7', 'Tell me what you see'),
+      ('Heart button', 'F8', 'Toggle settings'),
+      ('Small Left Bumper', 'F9', 'Send text only'),
+      ('Star button', 'F10', 'Toggle messages'),
+      ('Minus button', 'Enter', 'Activate button'),
+    ];
+
+    Widget row(String a, String b, String c, {bool header = false}) {
+      final styleH = TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 15,
+        color: Colors.grey.shade900,
+      );
+      final styleA = TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: Colors.grey.shade800,
+      );
+      final styleB = const TextStyle(
+        fontSize: 14,
+        fontFamily: 'monospace',
+        fontWeight: FontWeight.bold,
+      );
+      final styleC = TextStyle(fontSize: 14, color: Colors.grey.shade700);
+
+      Widget cell(String t, TextStyle s, {bool key = false}) => Expanded(
+        flex: key ? 1 : 3,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: Text(t, style: s),
+        ),
+      );
+
+      final r = Row(
+        children: [
+          cell(a, header ? styleH : styleA),
+          cell(b, header ? styleH : styleB, key: true),
+          cell(c, header ? styleH : styleC),
+        ],
+      );
+
+      return header
+          ? Container(color: Colors.grey.shade300.withOpacity(.4), child: r)
+          : Focus(
+              child: Semantics(
+                label: '$a, key $b, action: $c',
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey.shade300),
+                    ),
+                  ),
+                  child: r,
+                ),
+              ),
+            );
+    }
+
+    return Column(
+      children: [
+        row('Button', 'Key', 'Action', header: true),
+        for (final s in data) row(s.$1, s.$2, s.$3),
       ],
     );
   }
 
-  Widget _buildShortcutsSection() {
-    final shortcuts = [
-      ('F1', 'Send with photo', 'Send your message with camera photo'),
-      ('F2', 'Toggle voice input', 'Start or stop voice recording'),
-      ('F3', 'New chat', 'Clear conversation and start fresh'),
-      ('F4', 'Find exit', 'Quick action for navigation assistance'),
-      ('F5', 'Describe room', 'Quick action to describe surroundings'),
-      ('F6', 'Read text', 'Quick action to read visible text'),
-      ('F7', 'Tell me what you see', 'Quick action for scene description'),
-      ('F8', 'Toggle settings', 'Open or close this settings page'),
-      ('F9', 'Send text only', 'Send your message without photo'),
-      ('F10', 'Toggle messages', 'Show or hide conversation history'),
-      ('Enter', 'Activate button', 'Activate the currently focused element'),
-      if (_isIOS)
-        (
-          'Ctrl+Opt+Space',
-          'VoiceOver activate',
-          'VoiceOver double-tap gesture',
-        ),
-      if (!_isIOS)
-        ('Enter/Space', 'TalkBack activate', 'TalkBack double-tap gesture'),
-    ];
+  // ── Controller setup image ──
+  Widget _buildControllerSetup() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _buildSectionHeader(
+        'Controller Setup',
+        'If a sighted person is available, they can follow this picture to help set up your controller. You don’t have to, but it can make things easier.',
+      ),
+      const SizedBox(height: 16),
+      Semantics(
+        label:
+            'Image showing the physical controller layout. A sighted helper can refer to it during setup.',
+        image: true,
+        child: Container(
+          height: 200,
+          width: double.infinity,
+          decoration: _boxDecoration(),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset('assets/controller_setup.png', fit: BoxFit.cover),
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+                Text(
+                  'Photo of controller layout',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
-      child: Semantics(
-        label: 'Keyboard shortcuts reference',
-        hint: 'List of ${shortcuts.length} available keyboard shortcuts',
-        child: ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20),
-          itemCount: shortcuts.length,
-          separatorBuilder: (context, index) => const Divider(height: 20),
-          itemBuilder: (context, index) {
-            final shortcut = shortcuts[index];
-            return _buildShortcutRow(shortcut.$1, shortcut.$2, shortcut.$3);
-          },
         ),
       ),
-    );
-  }
+    ],
+  );
 
-  Widget _buildShortcutRow(String key, String action, String description) {
-    return Semantics(
-      label: 'Shortcut: $key - $action',
-      hint: description,
+  // ── Backend selector ──
+  Widget _buildBackendSelector() => Semantics(
+    label: 'Processing backend selector',
+    child: Container(
+      decoration: _boxDecoration(),
+      padding: const EdgeInsets.all(20),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              key,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  action,
+                  'Processing Backend',
                   style: TextStyle(
                     color: Colors.grey.shade800,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
-                  description,
+                  'Choose processing method',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 16),
+          _buildBackendToggle(),
         ],
+      ),
+    ),
+  );
+
+  Widget _buildBackendToggle() => Container(
+    decoration: BoxDecoration(
+      color: Colors.grey.shade100,
+      borderRadius: BorderRadius.circular(25),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _backendOption(PreferredBackend.cpu, 'CPU', Icons.memory_rounded),
+        _backendOption(
+          PreferredBackend.gpu,
+          'GPU',
+          Icons.developer_board_rounded,
+        ),
+      ],
+    ),
+  );
+
+  Widget _backendOption(PreferredBackend b, String lbl, IconData icn) {
+    final selected = _selectedBackend == b;
+    return SemanticMaterialButton(
+      label: '$lbl backend',
+      hint:
+          'Double-tap to select ${lbl.toLowerCase()} processing${selected ? ', currently selected' : ''}',
+      onPressed: () => _onBackendChanged(b),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? Colors.blue.shade600 : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icn,
+              size: 18,
+              color: selected ? Colors.white : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              lbl,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.grey.shade700,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildActionButton({
-    required String label,
-    required String hint,
-    required VoidCallback? onPressed,
-    required bool isPrimary,
-    bool isEnabled = true,
+  // ── Action buttons ──
+  Widget _buildActionRow() => Row(
+    children: [
+      Expanded(
+        child: _actionBtn(
+          'Cancel',
+          'Double-tap to cancel changes and return to chat',
+          _cancel,
+          primary: false,
+        ),
+      ),
+      const SizedBox(width: 16),
+      Expanded(
+        child: _actionBtn(
+          'Save Changes',
+          _hasChanges
+              ? 'Double-tap to save changes and return to chat'
+              : 'No changes to save',
+          _hasChanges ? _save : null,
+          primary: true,
+          enabled: _hasChanges,
+        ),
+      ),
+    ],
+  );
+
+  Widget _actionBtn(
+    String lbl,
+    String hint,
+    VoidCallback? onTap, {
+    required bool primary,
+    bool enabled = true,
   }) {
-    // If disabled, return non-interactive button
-    if (!isEnabled || onPressed == null) {
+    if (!enabled || onTap == null) {
       return Container(
         height: 56,
         decoration: BoxDecoration(
           color: Colors.grey.shade200,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade300, width: 2),
+          border: Border.all(color: Colors.grey.shade300),
         ),
         child: Center(
           child: Text(
-            label,
+            lbl,
             style: TextStyle(
               color: Colors.grey.shade500,
-              fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
       );
     }
-
-    // Enabled button with semantic wrapper
     return SemanticMaterialButton(
-      label: label,
+      label: lbl,
       hint: hint,
-      onPressed: onPressed,
+      onPressed: onTap,
       child: Container(
         height: 56,
         decoration: BoxDecoration(
-          gradient: isPrimary
+          gradient: primary
               ? const LinearGradient(
                   colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
                 )
               : null,
-          color: isPrimary ? null : Colors.white,
+          color: primary ? null : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isPrimary ? Colors.transparent : Colors.grey.shade300,
-            width: 2,
+            color: primary ? Colors.transparent : Colors.grey.shade300,
           ),
-          boxShadow: isPrimary
-              ? [
-                  BoxShadow(
-                    color: Colors.green.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+          boxShadow: [
+            BoxShadow(
+              color: primary
+                  ? Colors.green.withOpacity(.2)
+                  : Colors.black.withOpacity(.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Center(
           child: Text(
-            label,
+            lbl,
             style: TextStyle(
-              color: isPrimary ? Colors.white : Colors.grey.shade700,
-              fontSize: 16,
+              color: primary ? Colors.white : Colors.grey.shade700,
               fontWeight: FontWeight.w600,
             ),
           ),
