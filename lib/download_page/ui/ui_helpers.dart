@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../services/logger.dart';
 
 class UIHelpers {
+  /// Color-codes log levels for better visual distinction
   static Color getLogColor(String level) {
     switch (level) {
       case 'ERROR':
@@ -20,6 +21,7 @@ class UIHelpers {
     }
   }
 
+  /// Debug dialog with copy/clear functionality for troubleshooting
   static void showLogsDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -83,6 +85,7 @@ class UIHelpers {
     );
   }
 
+  /// Error display dialog with copy functionality for support/debugging
   static void showErrorDialog(
     BuildContext context,
     List<String> errorMessages,

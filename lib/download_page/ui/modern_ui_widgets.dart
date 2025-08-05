@@ -5,7 +5,7 @@ import '../models/enums.dart';
 import '../models/models.dart';
 
 class ModernUIWidgets {
-  // Modern gradient button
+  /// Creates a reusable gradient button with consistent styling and disabled states
   static Widget _buildGradientButton({
     required VoidCallback? onPressed,
     required String text,
@@ -14,6 +14,7 @@ class ModernUIWidgets {
     bool isSecondary = false,
     double? width,
   }) {
+    // Default gradient colors based on button type
     final colors =
         gradientColors ??
         (isSecondary
@@ -27,11 +28,13 @@ class ModernUIWidgets {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          // Disable gradient when button is disabled
           colors: onPressed != null
               ? colors
               : [Colors.grey[300]!, Colors.grey[400]!],
         ),
         borderRadius: BorderRadius.circular(12),
+        // Add shadow only when button is enabled
         boxShadow: onPressed != null
             ? [
                 BoxShadow(
@@ -70,7 +73,7 @@ class ModernUIWidgets {
     );
   }
 
-  // Download icon without circular progress
+  /// Dynamic icon that changes based on download status with smooth animations
   static Widget buildDownloadIcon(
     DownloadStatus status,
     DownloadProgress? progress,
@@ -137,13 +140,14 @@ class ModernUIWidgets {
         break;
     }
 
+    // Smooth transition between different icons
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
       child: iconWidget,
     );
   }
 
-  // Modern status message with consistent text color
+  /// Status-aware message with dynamic content and progress percentage
   static Widget buildStatusMessage(
     DownloadStatus status,
     DownloadProgress? progress,
@@ -189,13 +193,12 @@ class ModernUIWidgets {
         break;
       case DownloadStatus.failed:
         title = "Download Failed";
+        // Use the most recent error message if available
         subtitle = errorMessages.isNotEmpty
             ? "${errorMessages.last} Please try again or check your connection."
             : "Something went wrong during the download. Please try again.";
         break;
       case DownloadStatus.cancelled:
-        // This case should not normally be reached since we reset to notStarted,
-        // but included for exhaustive matching
         title = "Ready to Download";
         subtitle =
             "You'll need to create a free Hugging Face account to accept the model license and download. Requires 3.14GB of storage space.";
@@ -223,7 +226,7 @@ class ModernUIWidgets {
           ),
           textAlign: TextAlign.center,
         ),
-        // Show percentage between subtitle and progress bar
+        // Show large percentage display during active downloads
         if (progress != null &&
             (status == DownloadStatus.downloading ||
                 status == DownloadStatus.paused)) ...[
@@ -242,7 +245,7 @@ class ModernUIWidgets {
     );
   }
 
-  // Progress bar with left-to-right alignment
+  /// Progress bar with left-aligned fill and status-based colors
   static Widget buildProgressBar(
     DownloadProgress? progress,
     DownloadStatus status,
@@ -268,6 +271,7 @@ class ModernUIWidgets {
             height: 8,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(4),
+              // Different colors for paused vs active downloads
               gradient: LinearGradient(
                 colors: status == DownloadStatus.paused
                     ? [Colors.orange[400]!, Colors.orange[600]!]
@@ -280,7 +284,7 @@ class ModernUIWidgets {
     );
   }
 
-  // Action buttons with proper spacing and conditional cancel button
+  /// Status-dependent action buttons with automatic navigation for completed downloads
   static Widget buildActionButtons(
     DownloadStatus status,
     VoidCallback onStartDownload,
@@ -340,7 +344,7 @@ class ModernUIWidgets {
         );
 
       case DownloadStatus.completed:
-        // Directly navigate to chat instead of showing button
+        // Auto-navigate instead of showing button
         WidgetsBinding.instance.addPostFrameCallback((_) => onGoToChat());
         return const SizedBox.shrink();
 
@@ -349,7 +353,6 @@ class ModernUIWidgets {
     }
   }
 
-  // Simple logs button only
   static Widget buildLogsButton(BuildContext context, VoidCallback onPressed) {
     return Container(
       margin: const EdgeInsets.only(top: 16, right: 16),
@@ -371,7 +374,7 @@ class ModernUIWidgets {
     );
   }
 
-  // License agreement bottom sheet
+  /// Modal bottom sheet for license agreement with proper styling
   static Widget buildLicenseBottomSheet(
     BuildContext context,
     VoidCallback onCancel,
@@ -393,6 +396,7 @@ class ModernUIWidgets {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Handle bar for bottom sheet
           Container(
             width: 40,
             height: 4,

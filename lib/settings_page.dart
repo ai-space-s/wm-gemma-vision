@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+// settings_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +8,8 @@ import 'dart:io';
 import 'chat_page/widgets/semantic_material_button.dart';
 import 'chat_page/widgets/semantic_button_registry.dart';
 
+/// Settings page for configuring AI system context, controller layout, and processing backend
+/// Optimized for accessibility with comprehensive keyboard navigation and screen reader support
 class SettingsPage extends StatefulWidget {
   final String systemContext;
   final PreferredBackend backend;
@@ -27,11 +29,11 @@ class _SettingsPageState extends State<SettingsPage> {
   late PreferredBackend _selectedBackend;
   bool _hasChanges = false;
 
-  // Platform detection
+  /// Platform detection for accessibility-specific features
   bool get _isIOS => !kIsWeb && Platform.isIOS;
   bool get _isAndroid => !kIsWeb && Platform.isAndroid;
 
-  // Page-wide focus scope so arrow keys hit every focusable
+  /// Page-wide focus scope for comprehensive keyboard navigation
   final FocusScopeNode _pageScope = FocusScopeNode(
     debugLabel: 'SettingsPageScope',
   );
@@ -51,10 +53,11 @@ class _SettingsPageState extends State<SettingsPage> {
     _systemContextController.removeListener(_onTextChanged);
     _systemContextController.dispose();
     _pageScope.dispose();
-    SemanticButtonRegistry.clear();
+    SemanticButtonRegistry.clear(); // Clean up accessibility state
     super.dispose();
   }
 
+  /// Track changes to enable/disable save button and show unsaved changes indicator
   void _onTextChanged() {
     setState(() {
       _hasChanges =
@@ -63,6 +66,7 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  /// Handle backend selection with change tracking
   void _onBackendChanged(PreferredBackend? backend) {
     if (backend != null) {
       setState(() {
@@ -75,17 +79,20 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// Save changes and return to chat page
   void _save() => Navigator.of(context).pop({
     'systemContext': _systemContextController.text.trim(),
     'backend': _selectedBackend,
   });
 
+  /// Cancel changes and return to chat page
   void _cancel() => Navigator.of(context).pop();
 
   @override
   Widget build(BuildContext context) {
+    // Comprehensive keyboard shortcut mapping for accessibility
     final shortcuts = <LogicalKeySet, Intent>{
-      // Arrow / Tab navigation
+      // Arrow key navigation for screen readers and keyboard users
       LogicalKeySet(LogicalKeyboardKey.arrowDown): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowRight): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowUp): const PreviousFocusIntent(),
@@ -94,12 +101,12 @@ class _SettingsPageState extends State<SettingsPage> {
       LogicalKeySet(LogicalKeyboardKey.tab, LogicalKeyboardKey.shift):
           const PreviousFocusIntent(),
 
-      // Activate
+      // Universal activation keys
       LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
       LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
     };
 
-    // iOS VO triple-tap
+    // iOS VoiceOver specific activation combination
     if (_isIOS) {
       shortcuts[LogicalKeySet(
             LogicalKeyboardKey.control,
@@ -113,6 +120,7 @@ class _SettingsPageState extends State<SettingsPage> {
       shortcuts: shortcuts,
       child: Actions(
         actions: {
+          // Handle activation intents through semantic button registry
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
               SemanticButtonRegistry.invokeCurrentSemanticTap();
@@ -129,7 +137,7 @@ class _SettingsPageState extends State<SettingsPage> {
               backgroundColor: Colors.white,
               systemOverlayStyle: SystemUiOverlayStyle.dark,
               leading: Focus(
-                autofocus: true, // initial TalkBack focus here
+                autofocus: true, // Initial focus for screen readers
                 child: SemanticMaterialButton(
                   label: 'Back',
                   hint: 'Double-tap to return to chat',
@@ -142,7 +150,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               title: Semantics(
-                header: true,
+                header: true, // Mark as heading for screen readers
                 child: Text(
                   'Settings',
                   style: TextStyle(
@@ -153,6 +161,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               actions: [
+                // Conditional save button when changes exist
                 if (_hasChanges)
                   SemanticMaterialButton(
                     label: 'Save',
@@ -182,7 +191,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
             body: FocusTraversalGroup(
-              policy: WidgetOrderTraversalPolicy(),
+              policy: WidgetOrderTraversalPolicy(), // Predictable tab order
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
@@ -223,11 +232,10 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // ────────────────────────────── Helpers ──────────────────────────────
-
-  /// Makes any widget focusable so arrow-keys stop there.
+  /// Make any widget keyboard-focusable for comprehensive navigation
   Widget _wrapFocus(Widget child) => Focus(child: child);
 
+  /// Platform-specific accessibility advice for controller users
   Widget _buildAccessibilityAdvice() {
     final platform = _isIOS
         ? 'iOS VoiceOver'
@@ -266,11 +274,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// Reusable section header with semantic heading markup
   Widget _buildSectionHeader(String title, String desc) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Semantics(
-        header: true,
+        header: true, // Screen reader heading navigation
         child: Text(
           title,
           style: TextStyle(
@@ -285,6 +294,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ],
   );
 
+  /// Multi-line text field for system context editing
   Widget _buildContextField() => Semantics(
     label: 'System context text field',
     textField: true,
@@ -302,6 +312,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
+  /// Consistent box decoration for containers
   BoxDecoration _boxDecoration() => BoxDecoration(
     color: Colors.white,
     borderRadius: BorderRadius.circular(16),
@@ -315,8 +326,9 @@ class _SettingsPageState extends State<SettingsPage> {
     ],
   );
 
-  // ── Controller layout table ──
+  /// Comprehensive controller mapping table with detailed button descriptions
   Widget _buildShortcutsTable() {
+    // Complete controller mapping for blind users
     const data = [
       ('Right Bumper', 'F1', 'Send with photo'),
       ('Large Right Trigger', 'F2', 'Toggle voice input'),
@@ -347,6 +359,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     ];
 
+    /// Create table row with proper styling
     Widget row(String a, String b, String c, {bool header = false}) {
       final styleH = TextStyle(
         fontWeight: FontWeight.bold,
@@ -360,13 +373,13 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       final styleB = const TextStyle(
         fontSize: 14,
-        fontFamily: 'monospace',
+        fontFamily: 'monospace', // Monospace for key names
         fontWeight: FontWeight.bold,
       );
       final styleC = TextStyle(fontSize: 14, color: Colors.grey.shade700);
 
       Widget cell(String t, TextStyle s, {bool key = false}) => Expanded(
-        flex: key ? 1 : 3,
+        flex: key ? 1 : 3, // Narrow column for key names
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
           child: Text(t, style: s),
@@ -406,13 +419,13 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // ── Controller setup image ──
+  /// Controller setup image with accessibility description
   Widget _buildControllerSetup() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _buildSectionHeader(
         'Controller Setup',
-        'If a sighted person is available, they can follow this picture to help set up your controller. You don’t have to, but it can make things easier.',
+        'If a sighted person is available, they can follow this picture to help set up your controller. You don\'t have to, but it can make things easier.',
       ),
       const SizedBox(height: 16),
       Semantics(
@@ -428,7 +441,6 @@ class _SettingsPageState extends State<SettingsPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Image.asset('assets/controller_setup.png', fit: BoxFit.cover),
-
                 Text(
                   'Photo of controller layout',
                   style: TextStyle(
@@ -445,7 +457,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ],
   );
 
-  // ── Backend selector ──
+  /// Backend selector (CPU vs GPU) with toggle interface
   Widget _buildBackendSelector() => Semantics(
     label: 'Processing backend selector',
     child: Container(
@@ -479,6 +491,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
+  /// Toggle switch for backend selection
   Widget _buildBackendToggle() => Container(
     decoration: BoxDecoration(
       color: Colors.grey.shade100,
@@ -498,6 +511,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
+  /// Individual backend option with selection state
   Widget _backendOption(PreferredBackend b, String lbl, IconData icn) {
     final selected = _selectedBackend == b;
     return SemanticMaterialButton(
@@ -532,7 +546,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // ── Action buttons ──
+  /// Bottom action buttons (Cancel/Save) with state-aware styling
   Widget _buildActionRow() => Row(
     children: [
       Expanded(
@@ -558,6 +572,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ],
   );
 
+  /// Reusable action button with enabled/disabled states
   Widget _actionBtn(
     String lbl,
     String hint,
@@ -565,6 +580,7 @@ class _SettingsPageState extends State<SettingsPage> {
     required bool primary,
     bool enabled = true,
   }) {
+    // Disabled button styling
     if (!enabled || onTap == null) {
       return Container(
         height: 56,

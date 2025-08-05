@@ -1,3 +1,5 @@
+//chat_page/gemma_vision_chat.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -16,6 +18,7 @@ import '../settings_page.dart';
 import 'widgets/semantic_button_registry.dart';
 import 'config/system_prompts.dart';
 
+/// Main chat interface with AI vision model - handles bootstrap and lifecycle management
 class ChatPage extends StatefulWidget {
   const ChatPage({Key? key}) : super(key: key);
   @override
@@ -23,51 +26,55 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
-  /* ----------------------------------------------------------------- state */
+  /* Core state */
+  /// Chat message history
   final _msgs = <ChatMessage>[];
 
+  /// UI toggle states
   bool _showMessages = false;
   bool _showCamera = true;
 
+  /// TTS services (initially temporary, replaced after bootstrap)
   late FlutterTts _tts = FlutterTts();
   late StreamingTtsService _streamingTts = StreamingTtsService(_tts);
 
-  // These come from bootstrap – keep nullable until then.
+  /// Service references (nullable until bootstrap completes)
   ChatHelpers? _chatHelpers;
   SpeechService? _speechService;
   KeyboardHandler? _keyboardHandler;
   TextRecognitionService? _textRecognition;
 
-  // Use the specialized blind user navigation prompt by default
+  /// AI model configuration
   String _systemCtx = SystemPrompts.blindUserNavigation;
   PreferredBackend _backend = PreferredBackend.cpu;
 
-  /* misc */
+  /* UI control */
   final _promptBarKey = GlobalKey<PromptBarState>();
   bool _initialising = true;
-  bool _redirectedOnError = false;
-  bool _disposed = false;
+  bool _redirectedOnError = false; // Prevents duplicate error handling
+  bool _disposed = false; // Lifecycle guard
 
-  /* focus */
+  /* Focus management for accessibility */
   final FocusNode _rootFocus = FocusNode();
 
-  /* Scroll controller for auto-scrolling */
+  /* Auto-scroll for message list */
   final ScrollController _scrollController = ScrollController();
   Timer? _autoScrollTimer;
 
-  /* Animation controllers */
+  /* Page transition animations */
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
-  /* -------------------------------------------------------------- lifecycle */
+
   @override
   void initState() {
     super.initState();
     _initAnimations();
-    _bootstrap();
+    _bootstrap(); // Start complex service initialization
   }
 
+  /// Setup smooth page entry animations
   void _initAnimations() {
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
@@ -86,19 +93,21 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         );
   }
 
+  /// Complex service initialization with crash recovery and lifecycle guards
   Future<void> _bootstrap() async {
     if (_disposed) return;
 
     try {
+      // BootstrapManager handles heavy lifting: TTS, AI model, speech, camera, etc.
       final result = await BootstrapManager.bootstrap(
         context: context,
         systemContext: _systemCtx,
         backend: _backend,
         promptBarKey: _promptBarKey,
+        // Callback functions with lifecycle safety checks
         onToggleMessages: () {
           if (mounted && !_disposed) {
             setState(() => _showMessages = !_showMessages);
-            // Scroll to bottom when messages are shown
             if (_showMessages) {
               _scrollToBottom(force: true);
             }
@@ -114,25 +123,24 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         onQuickAction3: _quickAction3,
         onQuickAction4: _quickAction4,
         onToggleVoice: () {
-          // This will be called when F2 is pressed
-          _speechService?.toggleDictation();
+          _speechService?.toggleDictation(); // F2 key handler
         },
+        // Lifecycle callbacks for bootstrap safety
         isMounted: () => mounted,
         isDisposed: () => _disposed,
         setState: (fn) {
           setState(fn);
-          // Auto-scroll when messages are updated and visible
           if (_showMessages) {
-            _scheduleAutoScroll();
+            _scheduleAutoScroll(); // Auto-scroll when messages update
           }
         },
       );
 
-      // Stop/clean temporary instances before overwriting.
+      // Clean up temporary services before replacing with bootstrap results
       _streamingTts.stop();
       _tts.stop();
 
-      // Store references from bootstrap result.
+      // Store bootstrap results
       _tts = result.tts;
       _streamingTts = result.streamingTts;
       _chatHelpers = result.chatHelpers;
@@ -142,11 +150,12 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
       if (mounted && !_disposed) {
         setState(() => _initialising = false);
-        _rootFocus.requestFocus();
+        _rootFocus.requestFocus(); // Focus for keyboard shortcuts
         _fadeController.forward();
         _slideController.forward();
       }
     } catch (e) {
+      // Handle bootstrap failures (model missing, permissions, etc.)
       if (mounted && !_disposed) {
         await InitializationHandler.handleInitError(
           context: context,
@@ -159,19 +168,19 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
-  /* ---------------------- Auto-scroll functionality ---------------------- */
-  void _scheduleAutoScroll() {
-    // Cancel any existing timer
-    _autoScrollTimer?.cancel();
+  /* Auto-scroll to keep latest messages visible */
 
-    // Schedule a scroll after a short delay to let the UI update
+  /// Debounced scroll scheduling to avoid excessive scrolling
+  void _scheduleAutoScroll() {
+    _autoScrollTimer?.cancel();
     _autoScrollTimer = Timer(const Duration(milliseconds: 100), () {
       _scrollToBottom();
     });
   }
 
+  /// Scroll to bottom with safety checks
   void _scrollToBottom({bool force = false}) {
-    if (!_showMessages && !force) return; // Don't scroll if messages are hidden
+    if (!_showMessages && !force) return;
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
@@ -181,10 +190,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
-  /* ---------------------------------------------------------------- dispose */
   @override
   void dispose() {
-    _disposed = true;
+    _disposed = true; // Set flag first to prevent async operations
     _autoScrollTimer?.cancel();
     _scrollController.dispose();
     _fadeController.dispose();
@@ -194,12 +202,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _speechService?.dispose();
     _textRecognition?.dispose();
     _rootFocus.dispose();
-    // Clear semantic button registry
-    SemanticButtonRegistry.clear();
+    SemanticButtonRegistry.clear(); // Clean up accessibility registry
     super.dispose();
   }
 
-  /* -------------------- chat helper wrappers */
+  /* Chat operation wrappers with null safety */
   Future<void> _newChat() async =>
       await _chatHelpers!.newChat(_msgs, _promptBarKey);
 
@@ -209,22 +216,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   Future<void> _sendTextOnly(String prompt) async =>
       await _chatHelpers!.sendTextOnly(prompt, _msgs);
 
-  /* ------------------------ quick actions */
+  /* Quick action shortcuts for common vision tasks */
   Future<void> _quickAction1() async => _chatHelpers!.quickAction1(_msgs);
   Future<void> _quickAction2() async => _chatHelpers!.quickAction2(_msgs);
   Future<void> _quickAction3() async => _chatHelpers!.quickAction3(_msgs);
   Future<void> _quickAction4() async => _chatHelpers!.quickAction4(_msgs);
 
-  /* -------------------------------------------------------------- build UI */
   @override
   Widget build(BuildContext context) {
     if (_initialising) return ChatUIBuilder.buildLoadingScreen();
-
     return _buildMainContent();
   }
 
   Widget _buildMainContent() {
-    // ✅ BACK TO WORKING APPROACH - Use original Shortcuts/Actions pattern
+    /// Complex keyboard shortcut system with cross-platform accessibility support
     return Shortcuts(
       shortcuts: _keyboardHandler!.shortcuts,
       child: Actions(
@@ -232,7 +237,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         child: Focus(
           focusNode: _rootFocus,
           autofocus: true,
-          onKeyEvent: _speechService!.handleFocusKey,
+          onKeyEvent: _speechService!.handleFocusKey, // Speech integration
           child: Scaffold(
             backgroundColor: const Color(0xFFF8F9FA),
             appBar: ChatUIBuilder.buildCleanAppBar(
@@ -246,12 +251,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 position: _slideAnimation,
                 child: Column(
                   children: [
-                    /* View toggles */
+                    /* View toggle buttons */
                     ChatUIBuilder.buildViewToggleButtons(
                       showMessages: _showMessages,
                       onToggleMessages: () {
                         setState(() => _showMessages = !_showMessages);
-                        // Scroll to bottom when messages are shown
                         if (_showMessages) {
                           _scrollToBottom(force: true);
                         }
@@ -260,17 +264,16 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       isResetting: _chatHelpers!.resetting,
                     ),
 
-                    /* Main content - messages take available space */
+                    /* Expandable message list or spacer */
                     if (_showMessages)
                       ChatUIBuilder.buildMessagesContainer(
                         _msgs,
                         _scrollController,
                       )
                     else
-                      const Expanded(
-                        child: SizedBox(),
-                      ), // Spacer when messages are hidden
-                    /* Prompt bar - always at bottom */
+                      const Expanded(child: SizedBox()),
+
+                    /* Fixed prompt bar at bottom */
                     ChatUIBuilder.buildPromptBarContainer(
                       promptBarKey: _promptBarKey,
                       onPromptWithPhoto: _captureAndSend,
@@ -282,8 +285,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       onToggleListening: _speechService!.toggleDictation,
                       isGenerating: _chatHelpers!.isGenerating,
                       isSpeaking: _chatHelpers!.isSpeaking,
-                      onStopTts:
-                          _speechService!.stopTts, // Add the TTS stop callback
+                      onStopTts: _speechService!.stopTts,
                     ),
                   ],
                 ),
@@ -295,7 +297,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
-  /* ---------------- navigate to settings page ---------------- */
+  /// Navigate to settings with backend switching support
   Future<void> _navigateToSettings() async {
     if (_disposed || !mounted) return;
 
@@ -306,7 +308,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       ),
     );
 
-    // Handle settings result
+    // Process settings changes with full re-bootstrap if backend changed
     if (result != null && mounted && !_disposed) {
       final newSystemContext = result['systemContext'] as String?;
       final newBackend = result['backend'] as PreferredBackend?;
@@ -316,13 +318,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           _systemCtx = newSystemContext;
           _chatHelpers!.updateSystemContext(_systemCtx);
 
+          // Backend change requires full re-initialization
           if (_backend != newBackend) {
             _backend = newBackend;
             _msgs.clear();
             _initialising = true;
             BootstrapManager.reset();
             _redirectedOnError = false;
-            _bootstrap();
+            _bootstrap(); // Re-initialize with new backend
           }
         });
       }

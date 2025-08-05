@@ -9,38 +9,44 @@ import '../config/constants.dart';
 import '../models/models.dart';
 import 'logger.dart';
 
+/// OAuth 2.0 + PKCE for HuggingFace (PKCE = security for mobile apps without client secrets)
 class HuggingFaceOAuth {
+  /// Generate random 32-byte string for PKCE code_verifier (like a temporary password)
   static String _generateCodeVerifier() {
     final random = Random.secure();
     final bytes = List<int>.generate(32, (_) => random.nextInt(256));
-    return base64Url.encode(bytes).replaceAll('=', '');
+    return base64Url.encode(bytes).replaceAll('=', ''); // URL-safe base64
   }
 
+  /// Hash the code_verifier with SHA256 for code_challenge (public version)
   static String _generateCodeChallenge(String verifier) {
     final bytes = utf8.encode(verifier);
     final digest = sha256.convert(bytes);
     return base64Url.encode(digest.bytes).replaceAll('=', '');
   }
 
+  /// Build OAuth URL with PKCE params - user visits this to authorize our app
   static Future<String> generateAuthUrl() async {
     final codeVerifier = _generateCodeVerifier();
     final codeChallenge = _generateCodeChallenge(codeVerifier);
 
     Logger.debug('Generated OAuth code verifier and challenge');
 
-    // Store code verifier for later use
+    // Store verifier locally - need it later to prove we started this OAuth flow
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(codeVerifierKey, codeVerifier);
 
+    // Standard OAuth params + PKCE challenge
     final params = {
       'client_id': hfClientId,
       'redirect_uri': hfRedirectUri,
-      'response_type': 'code',
+      'response_type': 'code', // Want auth code, not direct tokens
       'scope': scope,
-      'code_challenge': codeChallenge,
-      'code_challenge_method': 'S256',
+      'code_challenge': codeChallenge, // Hash of our secret verifier
+      'code_challenge_method': 'S256', // SHA256 hashing method
     };
 
+    // URL-encode params safely (handles spaces, special chars)
     final query = params.entries
         .map(
           (e) =>
@@ -53,9 +59,12 @@ class HuggingFaceOAuth {
     return authUrl;
   }
 
+  /// Exchange auth code from redirect for actual access tokens
   static Future<AuthTokenData?> exchangeCodeForToken(String code) async {
     final prefs = await SharedPreferences.getInstance();
+    // Get the verifier we stored earlier - proves we started this flow
     final codeVerifier = prefs.getString(codeVerifierKey);
+
     if (codeVerifier == null) {
       Logger.error('Code verifier not found');
       return null;
@@ -63,31 +72,36 @@ class HuggingFaceOAuth {
 
     try {
       Logger.info('Exchanging authorization code for access token');
+
+      // POST to token endpoint with auth code + PKCE verifier
       final response = await http.post(
         Uri.parse(tokenEndpoint),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: {
           'client_id': hfClientId,
-          'code': code,
+          'code': code, // Auth code from HuggingFace redirect
           'redirect_uri': hfRedirectUri,
           'grant_type': 'authorization_code',
-          'code_verifier': codeVerifier,
+          'code_verifier':
+              codeVerifier, // Original secret - proves our identity
         },
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+
+        // Calculate token expiry time (default 1hr if not specified)
         final expiryTime = DateTime.now().add(
           Duration(seconds: data['expires_in'] ?? 3600),
         );
 
         final tokenData = AuthTokenData(
-          accessToken: data['access_token'],
-          refreshToken: data['refresh_token'],
+          accessToken: data['access_token'], // Bearer token for API calls
+          refreshToken: data['refresh_token'], // For getting new access tokens
           expiryTime: expiryTime,
         );
 
-        // Store token
+        // Store tokens persistently, cleanup temp verifier
         await prefs.setString(authTokenKey, json.encode(tokenData.toJson()));
         await prefs.remove(codeVerifierKey);
 

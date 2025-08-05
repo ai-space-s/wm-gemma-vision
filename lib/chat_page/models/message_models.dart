@@ -2,14 +2,14 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-/// Chat message model with image support
+/// Chat message with image support for vision AI
 class ChatMessage {
   String text;
   final bool isUser;
   bool isStreaming;
   MessageStats? stats;
-  File? imageFile; // For camera captured images
-  Uint8List? imageBytes; // For in-memory images
+  File? imageFile; // Camera captured images
+  Uint8List? imageBytes; // In-memory images
 
   ChatMessage(
     this.text, {
@@ -20,7 +20,7 @@ class ChatMessage {
     this.imageBytes,
   });
 
-  /// Create a text-only message
+  /// Text-only message constructor
   ChatMessage.text(
     this.text, {
     required this.isUser,
@@ -29,7 +29,7 @@ class ChatMessage {
   }) : imageFile = null,
        imageBytes = null;
 
-  /// Create a message with image file
+  /// Message with camera image file
   ChatMessage.withImageFile(
     this.text, {
     required this.isUser,
@@ -38,7 +38,7 @@ class ChatMessage {
     this.stats,
   }) : imageBytes = null;
 
-  /// Create a message with image bytes
+  /// Message with image data in memory
   ChatMessage.withImageBytes(
     this.text, {
     required this.isUser,
@@ -47,10 +47,9 @@ class ChatMessage {
     this.stats,
   }) : imageFile = null;
 
-  /// Check if this message has any image
   bool get hasImage => imageFile != null || imageBytes != null;
 
-  /// Get image data as bytes (useful for API calls)
+  /// Convert image to bytes for API calls (handles both file and memory images)
   Future<Uint8List?> getImageBytes() async {
     if (imageBytes != null) return imageBytes;
     if (imageFile != null) return await imageFile!.readAsBytes();
@@ -58,7 +57,7 @@ class ChatMessage {
   }
 }
 
-/// Performance statistics for AI responses
+/// AI response performance metrics
 class MessageStats {
   final double? timeToFirstToken;
   final double? totalLatency;

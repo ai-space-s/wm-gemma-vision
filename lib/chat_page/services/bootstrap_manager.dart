@@ -1,6 +1,5 @@
 // lib/chat_page/services/bootstrap_manager.dart
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -14,10 +13,14 @@ import 'text_recognition_service.dart';
 import '../handlers/keyboard_handler.dart';
 import '../widgets/prompt_bar.dart';
 
+/// Manages complex multi-service initialization with deadlock prevention and crash recovery
+/// Initializes AI model, TTS, speech recognition, camera, and keyboard handlers in correct order
 class BootstrapManager {
+  /// Global flags to prevent concurrent bootstrap and handle timeouts
   static bool _globalBootstrapping = false;
   static Completer<void>? _globalBootstrapCompleter;
 
+  /// Initialize all services with lifecycle safety and dependency management
   static Future<BootstrapResult> bootstrap({
     required BuildContext context,
     required String systemContext,
@@ -36,12 +39,13 @@ class BootstrapManager {
     required bool Function() isDisposed,
     required void Function(VoidCallback) setState,
   }) async {
-    // Check for concurrent bootstrap
+    // Prevent concurrent bootstrap attempts (causes deadlocks with AI model loading)
     if (_globalBootstrapping) {
       debugPrint(
         "[BootstrapManager] Bootstrap already in progress globally, waiting...",
       );
       try {
+        // Wait for existing bootstrap with timeout protection
         await _globalBootstrapCompleter?.future.timeout(
           const Duration(seconds: 30),
           onTimeout: () {
@@ -58,6 +62,7 @@ class BootstrapManager {
         _globalBootstrapCompleter = null;
       }
 
+      // Force reset if still bootstrapping (deadlock recovery)
       if (_globalBootstrapping) {
         debugPrint(
           "[BootstrapManager] Forcing bootstrap reset due to deadlock",
@@ -67,6 +72,7 @@ class BootstrapManager {
       }
     }
 
+    // Lifecycle safety check
     if (isDisposed()) {
       debugPrint("[BootstrapManager] Widget disposed, skipping bootstrap");
       throw BootstrapException("Widget disposed");
@@ -79,7 +85,7 @@ class BootstrapManager {
       debugPrint("[BootstrapManager] Starting bootstrap...");
       await Future.delayed(const Duration(milliseconds: 100));
 
-      // Initialize TTS
+      // Step 1: Initialize TTS services (needed by other services)
       final tts = FlutterTts();
       await tts.setSpeechRate(0.5);
       final streamingTts = StreamingTtsService(tts);
@@ -91,7 +97,7 @@ class BootstrapManager {
         throw BootstrapException("Widget not mounted");
       }
 
-      // Initialize text recognition service
+      // Step 2: Initialize text recognition (OCR for image analysis)
       final textRecognition = TextRecognitionService.instance;
       await textRecognition.initialize();
       debugPrint("[BootstrapManager] Text recognition initialized");
@@ -104,15 +110,14 @@ class BootstrapManager {
         throw BootstrapException("Widget not mounted");
       }
 
-      // Initialize speech service first (needed for chat helpers)
+      // Step 3: Initialize speech service (depends on TTS)
       final speechService = SpeechService(
         tts: tts,
         onStateChanged: () {
           if (isMounted() && !isDisposed()) setState(() {});
         },
         promptBarKey: promptBarKey,
-        isGenerating: () =>
-            false, // Will be updated after chatHelpers is created
+        isGenerating: () => false, // Updated after chatHelpers is created
       );
       await speechService.initialize();
 
@@ -123,7 +128,7 @@ class BootstrapManager {
       }
       debugPrint("[BootstrapManager] Speech service initialized");
 
-      // Initialize chat helpers with speech service and text recognition
+      // Step 4: Initialize chat helpers (depends on all previous services)
       final chatHelpers = ChatHelpers(
         service: GemmaService.instance,
         streamingTts: streamingTts,
@@ -143,10 +148,10 @@ class BootstrapManager {
       );
       debugPrint("[BootstrapManager] Chat helpers initialized");
 
-      // Update speech service's isGenerating callback now that chatHelpers exists
+      // Step 5: Update speech service callback now that chatHelpers exists
       speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
 
-      // Initialize keyboard handler with voice toggle callback
+      // Step 6: Initialize keyboard handler with all callbacks
       final keyboardHandler = KeyboardHandler(
         context: context,
         promptBarKey: promptBarKey,
@@ -162,7 +167,7 @@ class BootstrapManager {
       );
       debugPrint("[BootstrapManager] Keyboard handler initialized");
 
-      // Initialize Gemma service
+      // Step 7: Initialize AI model (heaviest operation, can fail)
       debugPrint("[BootstrapManager] Initializing Gemma service...");
       await GemmaService.instance.init(backend);
 
@@ -191,6 +196,7 @@ class BootstrapManager {
       debugPrint("[BootstrapManager] Bootstrap error: $e");
       debugPrint("[BootstrapManager] Stack trace: $stackTrace");
 
+      // Enhanced error logging for PlatformException (common with AI model loading)
       if (e is PlatformException) {
         debugPrint("[BootstrapManager] Platform error code: ${e.code}");
         debugPrint("[BootstrapManager] Platform error message: ${e.message}");
@@ -203,18 +209,21 @@ class BootstrapManager {
 
       rethrow;
     } finally {
+      // Always clean up global state to prevent deadlocks
       _globalBootstrapping = false;
       _globalBootstrapCompleter = null;
       debugPrint("[BootstrapManager] Bootstrap finally block - flags reset");
     }
   }
 
+  /// Reset bootstrap state (called when switching backends or recovering from errors)
   static void reset() {
     _globalBootstrapping = false;
     _globalBootstrapCompleter = null;
   }
 }
 
+/// Container for all initialized services
 class BootstrapResult {
   final FlutterTts tts;
   final StreamingTtsService streamingTts;
@@ -233,6 +242,7 @@ class BootstrapResult {
   });
 }
 
+/// Custom exception for bootstrap failures
 class BootstrapException implements Exception {
   final String message;
   BootstrapException(this.message);

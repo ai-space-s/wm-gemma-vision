@@ -1,5 +1,6 @@
 // download_page/models/enums.dart
 
+// All possible download states for UI state management
 enum DownloadStatus {
   notStarted,
   checkingAccess,
@@ -12,4 +13,5 @@ enum DownloadStatus {
   cancelled,
 }
 
+// OAuth token validation states
 enum TokenStatus { notStored, expired, valid }

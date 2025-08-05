@@ -6,8 +6,9 @@ import 'chat_bubble.dart';
 import 'prompt_bar.dart';
 import 'semantic_material_button.dart';
 
+/// Static UI builder for chat interface components with accessibility integration
 class ChatUIBuilder {
-  // ——————————————————— APP BAR ——————————————————— //
+  /// Clean modern app bar with settings button and proper system overlay
   static PreferredSizeWidget buildCleanAppBar({
     required VoidCallback onNewChat,
     required VoidCallback onToggleSettings,
@@ -16,7 +17,7 @@ class ChatUIBuilder {
     return AppBar(
       elevation: 0,
       backgroundColor: Colors.white,
-      systemOverlayStyle: SystemUiOverlayStyle.dark,
+      systemOverlayStyle: SystemUiOverlayStyle.dark, // Dark status bar content
       title: const Text(
         'Gemma Vision',
         style: TextStyle(
@@ -26,6 +27,7 @@ class ChatUIBuilder {
         ),
       ),
       actions: [
+        // Settings button with accessibility support
         SemanticMaterialButton(
           label: 'Settings',
           hint: 'Double-tap to open settings page',
@@ -53,7 +55,7 @@ class ChatUIBuilder {
     );
   }
 
-  // ———————————————— VIEW‑TOGGLE BUTTONS ———————————————— //
+  /// Toggle buttons for New Chat and Show/Hide Messages with proper focus traversal
   static Widget buildViewToggleButtons({
     required bool showMessages,
     required VoidCallback onToggleMessages,
@@ -74,8 +76,8 @@ class ChatUIBuilder {
                     ? 'New chat is currently processing'
                     : 'Double-tap to start a new chat conversation',
                 isActive: true,
-                activeColor: Colors.teal, // Green
-                inactiveColor: const Color(0xFFE8F5E8), // Light green
+                activeColor: Colors.teal, // Green theme
+                inactiveColor: const Color(0xFFE8F5E8),
                 onPressed: isResetting ? null : onNewChat,
                 disabled: isResetting,
               ),
@@ -91,8 +93,8 @@ class ChatUIBuilder {
                     ? 'Double-tap to hide the conversation messages'
                     : 'Double-tap to show the conversation messages',
                 isActive: showMessages,
-                activeColor: Colors.blueAccent, // Blue
-                inactiveColor: const Color(0xFFE3F2FD), // Light blue
+                activeColor: Colors.blueAccent, // Blue theme
+                inactiveColor: const Color(0xFFE3F2FD),
                 onPressed: onToggleMessages,
                 disabled: false,
               ),
@@ -103,6 +105,7 @@ class ChatUIBuilder {
     );
   }
 
+  /// Reusable toggle button with state-based styling and accessibility
   static Widget _buildToggleButton({
     required IconData icon,
     required String label,
@@ -117,6 +120,7 @@ class ChatUIBuilder {
     Color textColor;
     Color iconColor;
 
+    // State-based color scheme
     if (disabled) {
       backgroundColor = const Color(0xFFE0E7FF);
       textColor = const Color(0xFF9CA3AF);
@@ -171,7 +175,7 @@ class ChatUIBuilder {
     );
   }
 
-  // ———————————————————— MESSAGES LIST ———————————————————— //
+  /// Scrollable message list with accessibility labels and semantic child counting
   static Widget buildMessagesContainer(
     List<ChatMessage> messages,
     ScrollController scrollController,
@@ -184,8 +188,9 @@ class ChatUIBuilder {
           controller: scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           itemCount: messages.length,
-          semanticChildCount: messages.length,
+          semanticChildCount: messages.length, // For screen readers
           itemBuilder: (_, i) => Semantics(
+            // Descriptive labels for each message
             label: messages[i].isUser
                 ? 'Your message ${i + 1} of ${messages.length}'
                 : 'AI response ${i + 1} of ${messages.length}',
@@ -196,7 +201,7 @@ class ChatUIBuilder {
     );
   }
 
-  // ———————————————————— PROMPT BAR ———————————————————— //
+  /// Container for prompt bar that shows status during AI processing
   static Widget buildPromptBarContainer({
     required GlobalKey<PromptBarState> promptBarKey,
     required Future<void> Function(String) onPromptWithPhoto,
@@ -207,9 +212,9 @@ class ChatUIBuilder {
     required VoidCallback onToggleListening,
     required bool isGenerating,
     required bool isSpeaking,
-    Future<void> Function()? onStopTts, // Add TTS stop callback
+    Future<void> Function()? onStopTts,
   }) {
-    // Full‑width orange bar when busy; plain white strip when idle.
+    // Show status widget when AI is busy, otherwise show input bar
     if (isGenerating || isSpeaking) {
       return _buildStatusWidget(
         isGenerating: isGenerating,
@@ -228,11 +233,12 @@ class ChatUIBuilder {
         speechEnabled: speechEnabled,
         listening: listening,
         onToggleListening: onToggleListening,
-        onStopTts: onStopTts, // Pass the TTS stop callback
+        onStopTts: onStopTts,
       ),
     );
   }
 
+  /// Visual status indicator during AI processing with accessibility announcements
   static Widget _buildStatusWidget({
     required bool isGenerating,
     required bool isSpeaking,
@@ -287,7 +293,7 @@ class ChatUIBuilder {
     );
   }
 
-  // ———————————————————— LOADING SCREEN ———————————————————— //
+  /// Loading screen shown during app initialization
   static Widget buildLoadingScreen() {
     return const Scaffold(
       body: DecoratedBox(

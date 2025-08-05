@@ -1,13 +1,15 @@
 // lib/chat_page/services/error_dialog_service.dart
 import 'package:flutter/material.dart';
 
+/// User-friendly error dialogs for AI model initialization failures
 class ErrorDialogService {
+  /// Show detailed error dialog when AI model fails to load with recovery options
   static Future<String?> showInitializationErrorDialog(
     BuildContext context,
   ) async {
     return await showDialog<String>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: false, // Force user to choose an action
       builder: (BuildContext context) {
         return Dialog(
           shape: RoundedRectangleBorder(
@@ -22,7 +24,7 @@ class ErrorDialogService {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Error icon
+                // Warning icon with gradient background
                 Container(
                   width: 64,
                   height: 64,
@@ -40,7 +42,7 @@ class ErrorDialogService {
                 ),
                 const SizedBox(height: 20),
 
-                // Title
+                // Clear title explaining the issue
                 Text(
                   'AI Model Failed to Load',
                   style: TextStyle(
@@ -52,7 +54,7 @@ class ErrorDialogService {
                 ),
                 const SizedBox(height: 16),
 
-                // Explanation
+                // Detailed explanation of possible causes
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -72,13 +74,14 @@ class ErrorDialogService {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      // List of common causes with icons
                       ..._buildErrorCauses(),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
 
-                // Suggestion
+                // Helpful suggestion box
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -109,10 +112,10 @@ class ErrorDialogService {
                 ),
                 const SizedBox(height: 24),
 
-                // Action buttons
+                // Action buttons with clear hierarchy
                 Column(
                   children: [
-                    // Try Again button
+                    // Primary action: Try Again
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -150,7 +153,7 @@ class ErrorDialogService {
                     ),
                     const SizedBox(height: 12),
 
-                    // Return to Setup button
+                    // Secondary action: Return to model setup
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -188,6 +191,7 @@ class ErrorDialogService {
     );
   }
 
+  /// Simple dialog when retry attempts fail - directs user to model setup
   static Future<void> showRetryFailedDialog(
     BuildContext context,
     VoidCallback onGoToSetup,
@@ -220,6 +224,7 @@ class ErrorDialogService {
     );
   }
 
+  /// Build list of common error causes with icons for visual clarity
   static List<Widget> _buildErrorCauses() {
     final causes = [
       {'icon': Icons.memory, 'text': 'Insufficient device memory (RAM)'},

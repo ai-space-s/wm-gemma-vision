@@ -6,14 +6,14 @@ import 'package:flutter/foundation.dart';
 import '../widgets/prompt_bar.dart';
 import '../widgets/semantic_button_registry.dart';
 
-/// Intent so controller keys win even when a TextField has focus.
+/// Custom intent for function key shortcuts that bypass text field focus
 class GameIntent extends Intent {
   const GameIntent(this.key);
   final LogicalKeyboardKey key;
 }
 
-/// Handles all keyboard shortcuts and actions with cross-platform support
-/// Based on working cross-platform demo pattern
+/// Cross-platform keyboard handler with accessibility support for blind users
+/// Handles F-key shortcuts, arrow navigation, and platform-specific activation patterns
 class KeyboardHandler {
   final BuildContext _context;
   final GlobalKey<PromptBarState> _promptBarKey;
@@ -26,10 +26,10 @@ class KeyboardHandler {
   final VoidCallback _onQuickAction4;
   final VoidCallback _onToggleVoice;
 
-  // Track key state to prevent duplicate events
+  /// Prevent duplicate key event processing
   final Set<LogicalKeyboardKey> _pressedKeys = <LogicalKeyboardKey>{};
 
-  // Platform detection
+  /// Platform-specific behavior flags
   bool get _isIOS => !kIsWeb && Platform.isIOS;
 
   KeyboardHandler({
@@ -55,15 +55,15 @@ class KeyboardHandler {
        _onQuickAction4 = onQuickAction4,
        _onToggleVoice = onToggleVoice;
 
-  /// Handle keyboard shortcuts with state validation
+  /// Process keyboard shortcuts with ghost event prevention and state validation
   void onShortcut(LogicalKeyboardKey key) {
-    // Check if the key is actually pressed to prevent ghost events
+    // Prevent processing ghost events (key not actually pressed)
     if (!HardwareKeyboard.instance.logicalKeysPressed.contains(key)) {
       debugPrint('KeyboardHandler: Ignoring ghost key event for $key');
       return;
     }
 
-    // Prevent duplicate key handling
+    // Debounce: prevent rapid duplicate key processing
     if (_pressedKeys.contains(key)) {
       debugPrint('KeyboardHandler: Key $key already being processed');
       return;
@@ -72,37 +72,39 @@ class KeyboardHandler {
     _pressedKeys.add(key);
 
     try {
+      // Function key mappings for blind user navigation
       switch (key) {
         case LogicalKeyboardKey.f10:
-          _onToggleMessages();
+          _onToggleMessages(); // Show/hide message history
           break;
         case LogicalKeyboardKey.f9:
-          _promptBarKey.currentState?.sendTextOnly();
+          _promptBarKey.currentState?.sendTextOnly(); // Send text prompt
           break;
         case LogicalKeyboardKey.f8:
-          _onToggleSettings();
+          _onToggleSettings(); // Open settings
           break;
         case LogicalKeyboardKey.f1:
-          _promptBarKey.currentState?.sendWithPhoto();
+          _promptBarKey.currentState?.sendWithPhoto(); // Camera + prompt
           break;
         case LogicalKeyboardKey.f2:
-          _onToggleVoice();
+          _onToggleVoice(); // Toggle speech recognition
           break;
         case LogicalKeyboardKey.f3:
-          _onNewChat();
+          _onNewChat(); // Reset chat session
           break;
         case LogicalKeyboardKey.f5:
-          _onQuickAction1();
+          _onQuickAction1(); // Describe room layout
           break;
         case LogicalKeyboardKey.f7:
-          _onQuickAction2();
+          _onQuickAction2(); // Tell me what you see
           break;
         case LogicalKeyboardKey.f4:
-          _onQuickAction3();
+          _onQuickAction3(); // What is this?
           break;
         case LogicalKeyboardKey.f6:
-          _onQuickAction4();
+          _onQuickAction4(); // Read text in image
           break;
+        // Accessibility navigation
         case LogicalKeyboardKey.arrowUp:
         case LogicalKeyboardKey.arrowLeft:
           FocusScope.of(_context).previousFocus();
@@ -114,47 +116,45 @@ class KeyboardHandler {
         case LogicalKeyboardKey.enter:
         case LogicalKeyboardKey.select:
         case LogicalKeyboardKey.space:
-          // ✅ MATCHING WORKING DEMO: Handle activation with platform awareness
+          // Handle button activation with platform-specific requirements
           if (_shouldActivateButton()) {
             _activateCurrentButton();
           }
           break;
       }
     } finally {
-      // Remove key from pressed set after a short delay to prevent rapid re-triggering
+      // Debounce cleanup: allow key to be processed again after delay
       Future.delayed(const Duration(milliseconds: 100), () {
         _pressedKeys.remove(key);
       });
     }
   }
 
-  /// ✅ MATCHING WORKING DEMO: Platform-specific activation logic
+  /// Platform-specific button activation logic (iOS VoiceOver vs Android TalkBack)
   bool _shouldActivateButton() {
-    // For iOS VoiceOver: Ctrl + Alt + Space
-    // For Android TalkBack: Enter, Space, or Select
-    // For regular use: Enter, Space, or Select
-
     if (_isIOS) {
+      // iOS VoiceOver requires Ctrl + Alt + Space for activation
       return HardwareKeyboard.instance.isControlPressed &&
           HardwareKeyboard.instance.isAltPressed;
     } else {
-      return true; // Android and other platforms
+      // Android TalkBack: Enter, Space, or Select activate buttons
+      return true;
     }
   }
 
+  /// Activate currently focused semantic button
   void _activateCurrentButton() {
     SemanticButtonRegistry.invokeCurrentSemanticTap();
   }
 
-  /// Enhanced action handler that validates key events
+  /// Create validated action handler with error handling
   CallbackAction<GameIntent> _createGameAction() {
     return CallbackAction<GameIntent>(
       onInvoke: (intent) {
         try {
-          // Additional validation for the intent key
           final key = intent.key;
 
-          // Check if this is a valid key press event
+          // Double-check key validity at action level
           if (!HardwareKeyboard.instance.logicalKeysPressed.contains(key)) {
             debugPrint('GameIntent: Ignoring invalid key event for $key');
             return null;
@@ -170,9 +170,10 @@ class KeyboardHandler {
     );
   }
 
-  /// Get keyboard shortcuts map with cross-platform support
+  /// Platform-specific keyboard shortcut mappings
   Map<LogicalKeySet, Intent> get shortcuts => {
     if (_isIOS) ...{
+      // iOS: VoiceOver-specific navigation shortcuts
       LogicalKeySet(LogicalKeyboardKey.arrowDown): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowRight): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowUp): const PreviousFocusIntent(),
@@ -183,7 +184,7 @@ class KeyboardHandler {
         LogicalKeyboardKey.space,
       ): const ActivateIntent(),
     } else ...{
-      // Android: Standard focus intents
+      // Android: TalkBack-compatible navigation
       LogicalKeySet(LogicalKeyboardKey.arrowDown): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowRight): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.arrowUp): const PreviousFocusIntent(),
@@ -193,7 +194,7 @@ class KeyboardHandler {
       LogicalKeySet(LogicalKeyboardKey.space): const ActivateIntent(),
     },
 
-    // Function key shortcuts (platform-agnostic)
+    // Function key shortcuts (cross-platform)
     LogicalKeySet(LogicalKeyboardKey.f9): const GameIntent(
       LogicalKeyboardKey.f9,
     ),
@@ -226,10 +227,10 @@ class KeyboardHandler {
     ),
   };
 
-  /// Get keyboard actions map with platform-specific ActivateIntent handler
+  /// Platform-specific action handlers with accessibility integration
   Map<Type, Action<Intent>> get actions => {
-    // ✅ MATCHING WORKING DEMO: iOS-specific ActivateIntent handler
     if (_isIOS)
+      // iOS: Custom ActivateIntent handler for VoiceOver compatibility
       ActivateIntent: CallbackAction<ActivateIntent>(
         onInvoke: (_) {
           try {
@@ -241,12 +242,10 @@ class KeyboardHandler {
         },
       )
     else
-      // Android: Let the system handle ActivateIntent naturally
+      // Android: ActivateIntent with fallback to registry
       ActivateIntent: CallbackAction<ActivateIntent>(
         onInvoke: (_) {
           try {
-            // For Android, the semantic onTap should handle this naturally
-            // But we can also use the registry as fallback
             final activated = SemanticButtonRegistry.invokeCurrentSemanticTap();
             if (!activated) {
               debugPrint('No semantic tap registered, letting system handle');
@@ -258,10 +257,10 @@ class KeyboardHandler {
         },
       ),
 
+    // Function key handler
     GameIntent: _createGameAction(),
   };
 
-  /// Clean up resources
   void dispose() {
     _pressedKeys.clear();
   }

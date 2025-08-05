@@ -12,6 +12,7 @@ import 'speech_service.dart';
 import 'streaming_tts_service.dart';
 import 'text_recognition_service.dart';
 
+/// Core chat operations with vision AI - handles camera, OCR, streaming responses, and TTS
 class ChatHelpers {
   final GemmaService _service;
   final StreamingTtsService _streamingTts;
@@ -39,6 +40,7 @@ class ChatHelpers {
        _onStateChanged = onStateChanged,
        _showSnackBar = showSnackBar,
        _systemCtx = systemContext {
+    // Listen for TTS state changes to update UI
     _streamingTts.isSpeaking.addListener(_onStateChanged);
   }
 
@@ -46,6 +48,7 @@ class ChatHelpers {
     _streamingTts.isSpeaking.removeListener(_onStateChanged);
   }
 
+  // State getters for UI
   bool get resetting => _resetting;
   bool get isGenerating => _isGenerating;
   bool get isSpeaking => _streamingTts.isSpeaking.value;
@@ -53,6 +56,7 @@ class ChatHelpers {
 
   void updateSystemContext(String newContext) => _systemCtx = newContext;
 
+  /// Clean error messages for TTS (remove technical prefixes)
   Future<void> _announceError(String error) async {
     try {
       final cleanError = error
@@ -62,10 +66,11 @@ class ChatHelpers {
           .trim();
       await _speechService.speak('Error: $cleanError');
     } catch (e) {
-      // Silent fallback
+      // Silent fallback if TTS fails
     }
   }
 
+  /// Announce state changes for blind users
   Future<void> _announceStateChange(String message) async {
     try {
       await _speechService.speak(message);
@@ -74,6 +79,7 @@ class ChatHelpers {
     }
   }
 
+  /// Reset chat session and clean up all state
   Future<void> newChat(
     List<ChatMessage> messages,
     GlobalKey<PromptBarState>? promptBarKey,
@@ -106,6 +112,7 @@ class ChatHelpers {
     }
   }
 
+  /// Toggle message visibility with accessibility announcements
   Future<void> showMessages(List<ChatMessage> messages, bool show) async {
     try {
       if (show) {
@@ -118,6 +125,7 @@ class ChatHelpers {
     }
   }
 
+  /// Optimized camera capture - initialize only when needed, dispose immediately
   Future<File?> _captureWithEfficientCamera() async {
     if (kIsWeb) {
       throw Exception('Camera not supported on web');
@@ -130,6 +138,7 @@ class ChatHelpers {
         throw Exception('No cameras available');
       }
 
+      // Prefer back camera for environment scanning
       final description = cameras.firstWhere(
         (cam) => cam.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
@@ -138,7 +147,7 @@ class ChatHelpers {
       controller = CameraController(
         description,
         ResolutionPreset.high,
-        enableAudio: false,
+        enableAudio: false, // No audio needed for vision AI
       );
 
       await controller.initialize();
@@ -148,10 +157,12 @@ class ChatHelpers {
       await _announceError('Camera error: $e');
       rethrow;
     } finally {
+      // Always dispose controller to free camera resource
       await controller?.dispose();
     }
   }
 
+  /// Capture image + process text prompt with OCR integration and streaming response
   Future<void> captureAndSend(
     String prompt,
     List<ChatMessage> messages, {
@@ -160,6 +171,7 @@ class ChatHelpers {
     try {
       final imageFile = await _captureWithEfficientCamera();
 
+      // Add user message immediately for responsive UI
       final userMsg = ChatMessage.withImageFile(
         prompt,
         isUser: true,
@@ -168,6 +180,7 @@ class ChatHelpers {
       messages.add(userMsg);
       _onStateChanged();
 
+      // Add streaming AI placeholder
       final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
       messages.add(aiMsg);
       _onStateChanged();
@@ -175,22 +188,23 @@ class ChatHelpers {
       await _speechService.playWooshSound();
       _isGenerating = true;
       _onStateChanged();
-      // Only announce message type if it's not a quick action
+
+      // Skip message type announcement for quick actions (reduce verbosity)
       if (!isQuickAction) {
         await _speechService.announceMessageType(true);
       }
       await _streamingTts.startLoading();
 
+      // Run OCR on captured image in parallel with AI processing
       String extractedText = '';
       try {
         extractedText = await _textRecognition.extractTextFromImage(imageFile!);
-        // if (extractedText.isNotEmpty) {
-        //   _showSnackBar('Text detected in image');
-        // }
+        // Uncomment for OCR feedback: _showSnackBar('Text detected in image');
       } catch (e) {
         await _announceError('Text recognition failed: $e');
       }
 
+      // Enhance prompt with OCR results if text was found
       String enhancedPrompt = prompt;
       if (extractedText.isNotEmpty) {
         enhancedPrompt = '''$prompt
@@ -198,6 +212,7 @@ class ChatHelpers {
 [TEXT DETECTED IN IMAGE: $extractedText]''';
       }
 
+      // Stream AI response with optimized UI updates
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
 
@@ -209,8 +224,9 @@ class ChatHelpers {
           tokenCounter++;
 
           final currentText = responseBuffer.toString();
-          _streamingTts.addText(tok, currentText);
+          _streamingTts.addText(tok, currentText); // Real-time TTS
 
+          // Throttle UI updates: only update every 3 tokens for performance
           if (tokenCounter % 3 == 0) {
             aiMsg.text = currentText;
             _onStateChanged();
@@ -231,6 +247,7 @@ class ChatHelpers {
       await _streamingTts.stopLoading();
       final errorMsg = 'Failed to process image and text: $e';
 
+      // Add or update error message in chat
       if (messages.isEmpty || !messages.last.isUser) {
         messages.add(ChatMessage.text('Error: $e', isUser: false));
       } else {
@@ -247,18 +264,17 @@ class ChatHelpers {
     }
   }
 
+  /// Send text-only message with streaming response and optimized performance
   Future<void> sendTextOnly(String prompt, List<ChatMessage> messages) async {
     try {
-      // Add user message immediately for instant feedback
+      // Immediate UI feedback
       messages.add(ChatMessage.text(prompt, isUser: true));
       _onStateChanged();
 
-      // Add placeholder AI message immediately
       final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
       messages.add(aiMsg);
       _onStateChanged();
 
-      // Now start the actual processing
       await _speechService.playWooshSound();
       _isGenerating = true;
       _onStateChanged();
@@ -266,7 +282,7 @@ class ChatHelpers {
 
       await _streamingTts.startLoading();
 
-      // Ultra-fast optimization: Use local variables for throttling
+      // High-performance response handling with StringBuffer
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
 
@@ -275,22 +291,19 @@ class ChatHelpers {
       await _service.sendWithStreaming(
         text: fullPrompt,
         onToken: (tok) {
-          // Build response incrementally with StringBuffer
-          responseBuffer.write(tok);
+          responseBuffer.write(tok); // Efficient string building
           tokenCounter++;
 
-          // Throttle: Only update UI every 3 tokens, but always pass to TTS
           final currentText = responseBuffer.toString();
+          _streamingTts.addText(tok, currentText); // Stream to TTS
 
-          _streamingTts.addText(tok, currentText);
-
+          // Performance optimization: throttle UI updates to every 3 tokens
           if (tokenCounter % 3 == 0) {
             aiMsg.text = currentText;
             _onStateChanged();
           }
         },
         onComplete: (stats) async {
-          // Final update with complete text
           final finalText = responseBuffer.toString();
 
           aiMsg
@@ -298,7 +311,7 @@ class ChatHelpers {
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
-          _onStateChanged(); // Update UI with final text
+          _onStateChanged();
 
           await _streamingTts.onMessageComplete();
         },
@@ -313,6 +326,9 @@ class ChatHelpers {
     }
   }
 
+  /* Quick action shortcuts for common blind user navigation tasks */
+
+  /// Quick action: Analyze room layout and furniture placement
   Future<void> quickAction1(List<ChatMessage> messages) async {
     await _announceStateChange('Describing room');
     await captureAndSend(
@@ -322,6 +338,7 @@ class ChatHelpers {
     );
   }
 
+  /// Quick action: General scene description
   Future<void> quickAction2(List<ChatMessage> messages) async {
     await _announceStateChange('Analyzing what I can see');
     await captureAndSend(
@@ -331,9 +348,9 @@ class ChatHelpers {
     );
   }
 
+  /// Quick action: Object identification
   Future<void> quickAction3(List<ChatMessage> messages) async {
     await _announceStateChange('What is this?');
-    //await captureAndSend(SystemPrompts.findExit, messages, isQuickAction: true);
     await captureAndSend(
       SystemPrompts.whatIsThis,
       messages,
@@ -341,11 +358,13 @@ class ChatHelpers {
     );
   }
 
+  /// Quick action: OCR text reading
   Future<void> quickAction4(List<ChatMessage> messages) async {
     await _announceStateChange('Reading text');
     await captureAndSend(SystemPrompts.readText, messages, isQuickAction: true);
   }
 
+  /// Clear all messages with accessibility feedback
   Future<void> clearMessages(List<ChatMessage> messages) async {
     try {
       final messageCount = messages.length;

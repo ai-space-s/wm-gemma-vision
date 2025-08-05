@@ -1,6 +1,7 @@
 // download_page/models/models.dart
 import 'package:flutter_downloader/flutter_downloader.dart';
 
+// OAuth token data with expiry validation
 class AuthTokenData {
   final String accessToken;
   final String? refreshToken;
@@ -12,6 +13,7 @@ class AuthTokenData {
     required this.expiryTime,
   });
 
+  // Check if token has expired (compares with current time)
   bool get isExpired => DateTime.now().isAfter(expiryTime);
 
   Map<String, dynamic> toJson() => {
@@ -27,6 +29,7 @@ class AuthTokenData {
   );
 }
 
+// Download progress data with percentage calculation
 class DownloadProgress {
   final int totalBytes;
   final int downloadedBytes;
@@ -42,10 +45,14 @@ class DownloadProgress {
     required this.status,
   });
 
+  // Calculate progress as 0.0-1.0 ratio
   double get progress => totalBytes > 0 ? downloadedBytes / totalBytes : 0.0;
+
+  // Convert to percentage (0-100)
   int get progressPercent => (progress * 100).round();
 }
 
+// Log entry with timestamp formatting for debug display
 class LogEntry {
   final DateTime timestamp;
   final String level;
@@ -57,6 +64,7 @@ class LogEntry {
     required this.message,
   });
 
+  // Format time as HH:MM:SS for logs display
   String get formattedTime =>
       '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')}';
 

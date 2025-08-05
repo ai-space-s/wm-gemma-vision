@@ -4,7 +4,9 @@ import 'package:gemma_chat/download_page/model_download_page.dart';
 import '../services/error_dialog_service.dart';
 import '../services/bootstrap_manager.dart';
 
+/// Handles bootstrap failures and provides recovery options
 class InitializationHandler {
+  /// Show error dialog and handle user choice (retry or redownload model)
   static Future<void> handleInitError({
     required BuildContext context,
     required bool mounted,
@@ -16,6 +18,7 @@ class InitializationHandler {
 
     debugPrint("Gemma service initialization failed");
 
+    // Prevent duplicate error handling
     if (!mounted || redirectedOnError || disposed) return;
     setRedirectedOnError(true);
 
@@ -32,6 +35,7 @@ class InitializationHandler {
             disposed: () => disposed,
           );
         } else {
+          // Fallback: go back to download page
           navigateToDownloadPage(context);
         }
       }
@@ -41,6 +45,7 @@ class InitializationHandler {
     }
   }
 
+  /// Attempt to retry initialization after failure
   static Future<void> retryInitialization({
     required BuildContext context,
     required bool Function() mounted,
@@ -51,10 +56,9 @@ class InitializationHandler {
     try {
       debugPrint("[InitializationHandler] Retrying initialization...");
 
-      // Reset bootstrap manager state
+      // Reset bootstrap state for clean retry
       BootstrapManager.reset();
 
-      // Small delay to let UI update
       await Future.delayed(const Duration(milliseconds: 500));
 
       debugPrint(
@@ -71,6 +75,7 @@ class InitializationHandler {
     }
   }
 
+  /// Navigate back to download page when initialization fails completely
   static void navigateToDownloadPage(BuildContext context) {
     try {
       if (context.mounted) {

@@ -8,9 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/message_models.dart';
 
-/// Gemma Service (singleton) – loads model once, keeps chat alive.
-/// This version is performance-minded: direct streaming of raw tokens
-/// and minimal intermediate processing.
+/// Singleton service for Google's Gemma AI model - optimized for performance and memory efficiency
+/// Handles model loading, chat sessions, and streaming responses with minimal overhead
 class GemmaService {
   GemmaService._internal();
   static final GemmaService instance = GemmaService._internal();
@@ -20,51 +19,49 @@ class GemmaService {
   InferenceChat? _chat;
   bool _initialised = false;
 
-  /// Initialize with the selected backend.
-  /// - Only runs once (idempotent guard).
-  /// - Attempts to use a locally cached model file if installed.
+  /// Initialize model with selected backend (CPU/GPU) - idempotent operation
+  /// Uses local model file if available to avoid redundant downloads
   Future<void> init(PreferredBackend backend) async {
-    if (_initialised) return;
+    if (_initialised) return; // Prevent duplicate initialization
 
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/gemma-3n-E2B-it-int4.task';
 
-    // If a model file exists locally and the plugin hasn't installed one yet,
-    // point it to the local path to avoid redundant downloads.
+    // Point plugin to local model file if it exists and plugin hasn't loaded one yet
     if (!await _gemma.modelManager.isModelInstalled &&
         File(path).existsSync()) {
       await _gemma.modelManager.setModelPath(path);
     }
 
-    // Lazily create the model if not yet created.
+    // Create model instance with vision support and performance settings
     _model ??= await _gemma.createModel(
       preferredBackend: backend,
-      modelType: ModelType.gemmaIt,
-      supportImage: true,
-      maxTokens: 8192,
-      maxNumImages: 1,
+      modelType: ModelType.gemmaIt, // Instruction-tuned variant
+      supportImage: true, // Enable vision capabilities
+      maxTokens: 8192, // Context window size
+      maxNumImages: 1, // Single image per message
     );
 
-    // Lazily create the chat session tied to the model.
+    // Create persistent chat session with optimized parameters
     _chat ??= await _model!.createChat(
-      randomSeed: 1,
-      temperature: 1,
-      topK: 64,
-      topP: 0.95,
+      randomSeed: 1, // Deterministic for testing
+      temperature: 1, // Balanced creativity vs consistency
+      topK: 64, // Token sampling diversity
+      topP: 0.95, // Nucleus sampling threshold
       supportImage: true,
-      tokenBuffer: 512,
+      tokenBuffer: 512, // Reserve tokens for system prompts
     );
 
     _initialised = true;
   }
 
-  /// ULTRA-OPTIMIZED path: Return the raw token stream directly.
-  /// Caller is responsible for throttling, buffering, and any presentation logic.
+  /// High-performance streaming: returns raw token stream for custom processing
+  /// Caller handles throttling, buffering, and UI updates for maximum flexibility
   Future<Stream<String>> sendWithStreamingDirect({
     required String text,
     File? image,
   }) async {
-    // Attach user query to the chat. Support optional image payload.
+    // Add user message to chat history (supports optional image)
     if (image != null) {
       final bytes = await image.readAsBytes();
       await _chat!.addQuery(
@@ -74,17 +71,15 @@ class GemmaService {
       await _chat!.addQuery(Message.text(text: text, isUser: true));
     }
 
-    // Return filtered stream (only text tokens) so caller receives raw tokens.
+    // Return filtered stream containing only text tokens (excludes metadata)
     return _chat!
         .generateChatResponseAsync()
         .where((res) => res is TextResponse)
         .map((res) => (res as TextResponse).token);
   }
 
-  /// Legacy callback-based method (kept for compatibility).
-  /// - Sends tokens via `onToken`.
-  /// - Invokes `onComplete` with aggregated stats.
-  /// Note: All logging/debugging removed; callers should provide instrumentation if needed.
+  /// Legacy callback-based streaming for backward compatibility
+  /// Provides detailed performance statistics and error handling
   Future<void> sendWithStreaming({
     required String text,
     File? image,
@@ -98,12 +93,13 @@ class GemmaService {
       throw Exception('Chat not available');
     }
 
+    // Performance tracking variables
     final startTime = DateTime.now();
     DateTime? firstTokenTime;
     int tokenCount = 0;
     final responseBuffer = StringBuffer();
 
-    // Attach the user message (with optional image).
+    // Add user message with optional image to chat history
     if (image != null) {
       final bytes = await image.readAsBytes();
       await _chat!.addQuery(
@@ -116,40 +112,43 @@ class GemmaService {
     final completer = Completer<void>();
     bool streamStarted = false;
 
-    // Listen to the model's response stream and propagate tokens and completion.
+    // Process streaming response with performance metrics
     _chat!.generateChatResponseAsync().listen(
       (ModelResponse res) {
         if (!streamStarted) {
-          streamStarted = true; // Mark that the stream has begun.
+          streamStarted = true;
         }
 
         if (res is TextResponse) {
-          // Capture first token timing for latency metrics.
+          // Record timing for first token (important latency metric)
           firstTokenTime ??= DateTime.now();
           tokenCount++;
           responseBuffer.write(res.token);
 
-          // Forward each token to caller.
+          // Forward token to caller (swallow any callback errors)
           try {
             onToken(res.token);
           } catch (_) {
-            // Swallow callback errors; they are caller-specific.
+            // Ignore callback errors - caller's responsibility
           }
-        } else {
-          // Non-text responses are currently ignored; could be extended later.
         }
+        // Note: Non-text responses (metadata, etc.) are ignored
       },
       onDone: () {
         final endTime = DateTime.now();
+
+        // Calculate comprehensive performance statistics
         final stats = MessageStats(
           timeToFirstToken: firstTokenTime != null
               ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0
               : null,
           totalLatency: endTime.difference(startTime).inMilliseconds / 1000.0,
           tokenCount: tokenCount,
+          // Tokens per second during initial processing
           prefillSpeed: firstTokenTime != null && tokenCount > 0
               ? 1000.0 / firstTokenTime!.difference(startTime).inMilliseconds
               : null,
+          // Tokens per second during generation (excluding first token)
           decodeSpeed: firstTokenTime != null && tokenCount > 1
               ? (tokenCount - 1) *
                     1000.0 /
@@ -157,11 +156,11 @@ class GemmaService {
               : null,
         );
 
-        // Final callback with collected statistics.
+        // Deliver final statistics (ignore callback errors)
         try {
           onComplete(stats);
         } catch (_) {
-          // ignore
+          // Silent fallback
         }
 
         completer.complete();
@@ -174,13 +173,15 @@ class GemmaService {
     await completer.future;
   }
 
-  /// Clears conversation history but retains loaded model (fast reset).
+  /// Fast chat reset - clears conversation history but keeps model loaded in memory
+  /// Much faster than full reinitialization for "new chat" functionality
   Future<void> resetChatSession() async {
     if (!_initialised) return;
     await _chat?.clearHistory();
   }
 
-  /// Dispose of the entire stack: model, underlying plugin state, and reset initialization.
+  /// Complete cleanup - disposes model and resets all state
+  /// Use when switching backends or completely shutting down
   Future<void> dispose() async {
     await _model?.close();
     await _gemma.modelManager.deleteModel();

@@ -1,10 +1,11 @@
 // lib/chat_page/widgets/prompt_bar.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import '../services/sound_manager.dart';
 import 'semantic_material_button.dart';
 
+/// Interactive prompt input bar with text field, voice input, and send buttons
+/// Handles both text-only and photo+text message composition with accessibility support
 class PromptBar extends StatefulWidget {
   final Future<void> Function(String) onPromptWithPhoto;
   final Future<void> Function(String) onPromptTextOnly;
@@ -33,6 +34,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
   final _ctrl = TextEditingController();
   bool _sending = false;
 
+  // Button press animation for tactile feedback
   late AnimationController _scaleController;
   late Animation<double> _scaleAnimation;
 
@@ -40,6 +42,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
+    // Setup button press animation
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
@@ -49,6 +52,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
       CurvedAnimation(parent: _scaleController, curve: Curves.easeInOut),
     );
 
+    // Rebuild UI when text changes (enables/disables send buttons)
     _ctrl.addListener(() {
       setState(() {});
     });
@@ -61,46 +65,56 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // Public API for external access
   String get currentText => _ctrl.text;
   void clear() => _ctrl.clear();
 
+  /// External API: Send current text without photo (used by keyboard shortcuts)
   Future<void> sendTextOnly() async => _sendText(_ctrl.text);
+
+  /// External API: Send current text with photo (used by keyboard shortcuts)
   Future<void> sendWithPhoto() async => _sendWithPhoto(_ctrl.text);
 
+  /// Update text content programmatically (used by speech recognition)
   void updateText(String text) {
     setState(() {
       _ctrl.text = text;
+      // Move cursor to end of text
       _ctrl.selection = TextSelection.fromPosition(
         TextPosition(offset: _ctrl.text.length),
       );
     });
   }
 
+  /// Stop voice input if currently listening (before sending messages)
   void _stopVoiceIfListening() {
     if (widget.listening) {
       widget.onToggleListening();
     }
   }
 
+  /// Handle dictation button with audio feedback and state management
   Future<void> _handleDictationToggle() async {
     if (widget.disabled || _sending) return;
 
     if (widget.listening) {
+      // Stop dictation
       widget.onToggleListening();
       await SoundManager.instance.playDictationStop();
-      // Keep focus on the voice button after stopping
     } else {
-      // Don't unfocus - keep the button focused so user can easily stop dictation
+      // Start dictation with audio feedback
       await SoundManager.instance.playDictationStart();
       widget.onToggleListening();
     }
   }
 
+  /// Send message with photo capture
   Future<void> _sendWithPhoto(String prompt) async {
     if (widget.disabled || _sending) return;
     final txt = prompt.trim();
     if (txt.isEmpty) return;
 
+    // Stop any ongoing TTS before sending
     if (widget.onStopTts != null) {
       await widget.onStopTts!();
     }
@@ -118,11 +132,13 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     }
   }
 
+  /// Send text-only message
   Future<void> _sendText(String prompt) async {
     if (widget.disabled || _sending) return;
     final txt = prompt.trim();
     if (txt.isEmpty) return;
 
+    // Stop any ongoing TTS before sending
     if (widget.onStopTts != null) {
       await widget.onStopTts!();
     }
@@ -140,6 +156,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     }
   }
 
+  /// Reusable modern container styling
   Widget _buildModernContainer({
     required Widget child,
     EdgeInsets? padding,
@@ -165,6 +182,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     );
   }
 
+  /// Platform-aware gradient button with accessibility integration
   Widget _buildModernButton({
     required String label,
     required VoidCallback? onPressed,
@@ -174,7 +192,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
     IconData? icon,
     String? hint,
   }) {
-    // If disabled, return simple disabled button without any wrappers
+    // Disabled button styling
     if (!isEnabled || onPressed == null) {
       final disabledButton = Container(
         height: 56,
@@ -220,11 +238,11 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
       return isExpanded ? Expanded(child: disabledButton) : disabledButton;
     }
 
-    // ✅ ANDROID FIX: Use platform-specific button implementation
     Widget button;
 
+    // Platform-specific button implementation
     if (Platform.isAndroid) {
-      // Android: Simple direct approach without SemanticMaterialButton wrapper
+      // Android: Direct approach without semantic wrapper
       button = AnimatedBuilder(
         animation: _scaleAnimation,
         builder: (context, child) {
@@ -310,7 +328,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
         },
       );
     } else {
-      // iOS: Use SemanticMaterialButton for proper VoiceOver support
+      // iOS: Use SemanticMaterialButton for VoiceOver compatibility
       final buttonContent = AnimatedBuilder(
         animation: _scaleAnimation,
         builder: (context, child) {
@@ -389,6 +407,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
         },
       );
 
+      // Wrap with semantic accessibility layer for iOS
       button = SemanticMaterialButton(
         label: label,
         hint: hint,
@@ -412,16 +431,16 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Multi-line text input with clear button
             _buildModernContainer(
               backgroundColor: Colors.white,
               child: Focus(
-                // Make TextField focusable via keyboard navigation
                 canRequestFocus: true,
                 child: TextField(
                   controller: _ctrl,
                   enabled: !disabled,
                   minLines: 1,
-                  maxLines: 4,
+                  maxLines: 4, // Allow multi-line input
                   style: TextStyle(
                     color: Colors.grey.shade800,
                     fontSize: 16,
@@ -436,6 +455,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                     ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.all(20),
+                    // Show clear button when text is present
                     suffixIcon: hasText
                         ? IconButton(
                             onPressed: () {
@@ -449,6 +469,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                           )
                         : null,
                   ),
+                  // Enter key sends message with photo
                   onSubmitted: hasText ? (t) => _sendWithPhoto(t) : null,
                 ),
               ),
@@ -456,6 +477,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
 
             const SizedBox(height: 16),
 
+            // Voice input toggle button (if speech is enabled)
             if (widget.speechEnabled)
               _buildModernButton(
                 label: widget.listening
@@ -468,6 +490,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                     ? Icons.mic_off_rounded
                     : Icons.mic_rounded,
                 onPressed: _handleDictationToggle,
+                // Dynamic colors based on listening state
                 gradientColors: widget.listening
                     ? [Colors.red.shade400, Colors.red.shade600]
                     : [const Color(0xFF4CAF50), const Color(0xFF388E3C)],
@@ -477,8 +500,10 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
 
             if (widget.speechEnabled) const SizedBox(height: 16),
 
+            // Send buttons row
             Row(
               children: [
+                // Text-only send button
                 _buildModernButton(
                   label: 'Send Text Only',
                   hint: hasText
@@ -494,6 +519,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
 
                 const SizedBox(width: 12),
 
+                // Photo + text send button
                 _buildModernButton(
                   label: 'Send with Photo',
                   hint: hasText

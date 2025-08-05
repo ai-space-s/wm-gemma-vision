@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/message_models.dart';
 
+/// Chat message bubble with support for text, images, markdown rendering, and performance stats
+/// Handles different message types: text-only, image-only, or combined image+text messages
 class ChatBubble extends StatelessWidget {
   final ChatMessage msg;
 
@@ -11,33 +13,30 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If message has both image and text, show them as separate bubbles
+    // Combined image+text messages: show as connected bubbles
     if (msg.imageFile != null && msg.text.isNotEmpty) {
       return Column(
         crossAxisAlignment: msg.isUser
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start,
         children: [
-          // Image bubble
           _buildImageBubble(context),
-          const SizedBox(
-            height: 2,
-          ), // Reduced spacing to make them feel connected
-          // Text bubble
+          const SizedBox(height: 2), // Tight spacing to feel connected
           _buildTextBubble(context),
         ],
       );
     }
 
-    // If only image, show centered image bubble
+    // Image-only message
     if (msg.imageFile != null) {
       return _buildImageBubble(context);
     }
 
-    // If only text, show regular text bubble
+    // Text-only message (most common case)
     return _buildTextBubble(context);
   }
 
+  /// Image bubble with tap-to-expand and error handling
   Widget _buildImageBubble(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
@@ -63,6 +62,7 @@ class ChatBubble extends StatelessWidget {
                 child: Image.file(
                   msg.imageFile!,
                   fit: BoxFit.contain,
+                  // Graceful error handling for corrupted/missing images
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
                       height: 200,
@@ -97,11 +97,12 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
+  /// Text bubble with markdown support, streaming indicator, and performance stats
   Widget _buildTextBubble(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: msg.isUser ? 60.0 : 8.0, // Reduced horizontal padding
-        right: msg.isUser ? 8.0 : 60.0, // Reduced horizontal padding
+        left: msg.isUser ? 60.0 : 8.0,
+        right: msg.isUser ? 8.0 : 60.0,
         top: 4.0,
         bottom: 4.0,
       ),
@@ -112,6 +113,7 @@ class ChatBubble extends StatelessWidget {
             maxWidth: MediaQuery.of(context).size.width * 0.7,
           ),
           decoration: BoxDecoration(
+            // User messages: blue, AI messages: light gray
             color: msg.isUser ? Colors.blueAccent : Colors.grey.shade200,
             borderRadius: BorderRadius.circular(18),
           ),
@@ -126,7 +128,7 @@ class ChatBubble extends StatelessWidget {
               children: [
                 if (msg.text.isNotEmpty) _buildMessageContent(context),
 
-                // Show stats if available
+                // Performance stats for completed AI responses
                 if (msg.stats != null &&
                     !msg.isStreaming &&
                     msg.text.isNotEmpty)
@@ -135,7 +137,7 @@ class ChatBubble extends StatelessWidget {
                     child: _buildStatsWidget(msg.stats!),
                   ),
 
-                // Show streaming indicator
+                // Streaming indicator for messages being generated
                 if (msg.isStreaming)
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
@@ -158,20 +160,22 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
+  /// Render message content with markdown support for AI responses
   Widget _buildMessageContent(BuildContext context) {
-    // For user messages or simple text without markdown, use regular Text widget
-    // For AI messages that might contain markdown/LaTeX, use GptMarkdown
+    // GptMarkdown handles AI responses with markdown formatting, LaTeX, code blocks
+    // User messages use simple text since they typically don't contain markdown
     return GptMarkdown(
       msg.text,
       style: TextStyle(
         color: msg.isUser ? Colors.white : Colors.black87,
         fontSize: 15,
         fontWeight: FontWeight.w400,
-        height: 1.3,
+        height: 1.3, // Line height for readability
       ),
     );
   }
 
+  /// Full-screen image viewer with pinch-to-zoom
   void _showFullScreenImage(BuildContext context, File imageFile) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -187,7 +191,7 @@ class ChatBubble extends StatelessWidget {
               tag: 'image_${msg.text}_${imageFile.path}',
               child: InteractiveViewer(
                 minScale: 0.5,
-                maxScale: 3.0,
+                maxScale: 3.0, // Allow 3x zoom
                 child: Image.file(
                   imageFile,
                   fit: BoxFit.contain,
@@ -217,6 +221,7 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
+  /// Performance statistics widget showing AI response metrics
   Widget _buildStatsWidget(MessageStats stats) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -233,6 +238,7 @@ class ChatBubble extends StatelessWidget {
             color: msg.isUser ? Colors.white70 : Colors.black54,
           ),
           const SizedBox(width: 3),
+          // Core metrics: token count and total time
           Text(
             '${stats.tokenCount} tokens • ${stats.totalLatency!.toStringAsFixed(1)}s',
             style: TextStyle(
@@ -241,6 +247,7 @@ class ChatBubble extends StatelessWidget {
               fontWeight: FontWeight.w400,
             ),
           ),
+          // Time to first token (latency metric)
           if (stats.timeToFirstToken != null) ...[
             Text(
               ' • TTFT ${stats.timeToFirstToken!.toStringAsFixed(1)}s',
@@ -251,6 +258,7 @@ class ChatBubble extends StatelessWidget {
               ),
             ),
           ],
+          // Generation speed (tokens per second)
           if (stats.decodeSpeed != null) ...[
             Text(
               ' • ${stats.decodeSpeed!.toStringAsFixed(1)} tok/s',

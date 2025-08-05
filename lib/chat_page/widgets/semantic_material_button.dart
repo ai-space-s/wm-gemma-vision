@@ -4,7 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'semantic_button_registry.dart';
 
-/// Universal button based on working cross-platform demo pattern
+/// Cross-platform accessible button with VoiceOver/TalkBack integration
+/// Handles iOS VoiceOver double-tap vs Android TalkBack activation patterns
 class SemanticMaterialButton extends StatefulWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -29,7 +30,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
   late final FocusNode _focusNode;
   bool _hasAccessibilityFocus = false;
 
-  // Platform detection
+  /// Platform detection for accessibility behavior
   bool get _isIOS => !kIsWeb && Platform.isIOS;
 
   @override
@@ -41,7 +42,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
 
   @override
   void dispose() {
-    // Clean up registry if this was the current target
+    // Clean up registry if this button was the current semantic target
     if (SemanticButtonRegistry.currentSemanticTap == _handlePressed) {
       SemanticButtonRegistry.currentSemanticTap = null;
     }
@@ -50,6 +51,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
     super.dispose();
   }
 
+  /// Debug logging for focus changes
   void _onFocusChange() {
     debugPrint(
       _focusNode.hasFocus
@@ -58,6 +60,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
     );
   }
 
+  /// Core button press handler with disabled state check
   void _handlePressed() {
     debugPrint('BUTTON-PRESSED: ${widget.label}');
     if (!widget.disabled) {
@@ -65,31 +68,32 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
     }
   }
 
-  // ✅ PUBLIC METHODS: Allow external focus management (like in working demo)
+  /// External API: Allow programmatic accessibility focus (used by keyboard navigation)
   void gainAccessibilityFocus() {
     setState(() {
       _hasAccessibilityFocus = true;
     });
 
-    // Platform-specific focus handling (matching working demo pattern)
+    // Platform-specific focus handling
     if (_isIOS) {
-      // iOS: Register for static tap and request Flutter focus
+      // iOS VoiceOver: Register for static tap and request Flutter focus
       SemanticButtonRegistry.currentSemanticTap = _handlePressed;
       _focusNode.requestFocus();
     } else {
-      // Android: Request Flutter focus
+      // Android TalkBack: Just request Flutter focus
       _focusNode.requestFocus();
     }
 
     debugPrint('ACCESSIBILITY-FOCUS-GAINED: ${widget.label}');
   }
 
+  /// External API: Remove accessibility focus
   void loseAccessibilityFocus() {
     setState(() {
       _hasAccessibilityFocus = false;
     });
 
-    // Clear iOS static registry if this was the current target
+    // Clear iOS registry if this button was the current target
     if (_isIOS && SemanticButtonRegistry.currentSemanticTap == _handlePressed) {
       SemanticButtonRegistry.currentSemanticTap = null;
     }
@@ -97,6 +101,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
     debugPrint('ACCESSIBILITY-FOCUS-LOST: ${widget.label}');
   }
 
+  /// External API: Simulate button press (for testing or programmatic activation)
   void simulatePress() {
     _handlePressed();
   }
@@ -106,20 +111,23 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
     final canPress = !widget.disabled && widget.onPressed != null;
 
     return Semantics(
-      // ✅ MATCHING WORKING DEMO: Platform-agnostic semantics structure
-      excludeSemantics: _isIOS, // iOS uses custom semantics
+      // iOS: Exclude default semantics to use custom handling
+      excludeSemantics: _isIOS,
       container: true,
       button: true,
       enabled: canPress,
       focusable: true,
       focused: _hasAccessibilityFocus,
       label: widget.label,
+      // Platform-specific hints
       hint: _isIOS ? 'Double tap to activate' : widget.hint,
       onTap: canPress ? _handlePressed : null,
+      // iOS VoiceOver focus handlers
       onDidGainAccessibilityFocus: canPress
           ? () {
               debugPrint('SEMANTICS-FOCUS-GAINED: ${widget.label}');
               if (_isIOS) {
+                // Register for keyboard activation on iOS
                 SemanticButtonRegistry.currentSemanticTap = _handlePressed;
                 _focusNode.requestFocus();
               }
@@ -131,6 +139,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
       onDidLoseAccessibilityFocus: canPress
           ? () {
               debugPrint('SEMANTICS-FOCUS-LOST: ${widget.label}');
+              // Clean up iOS registry when losing focus
               if (_isIOS &&
                   SemanticButtonRegistry.currentSemanticTap == _handlePressed) {
                 SemanticButtonRegistry.currentSemanticTap = null;
