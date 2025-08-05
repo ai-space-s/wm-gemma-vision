@@ -1,29 +1,19 @@
 # Gemma Vision
 
-AI vision assistant for blind users. Built with Google’s Gemma 3n model to describe scenes, read text, and identify objects through voice.
+AI vision assistant for blind users. Built with Google’s Gemma 3n model to describe scenes, read text, and identify objects - all via a voice-first interface.
 
 ## Features
 
-- **Voice-first interface** with complete TTS feedback  
 - **8BitDo controller support** for hands-free operation  
-- **Offline AI processing** after initial model download  
+- **Offline AI processing** after initial model download 
+- **Complete privacy** nothing leaves your device
 - **Scene description** and text reading  
-- **Screen reader optimized** for VoiceOver/TalkBack  
+- **Ask follow up questions** Gemma remembers previous photos you've sent
+- **Screen reader optimized** for VoiceOver and TalkBack  
 
 ## Download
 
 Get the latest APK from [Releases](../../releases)
-
-## Controller Layout
-
-| Button | Action             |
-|--------|--------------------|
-| F1     | Send with photo    |
-| F2     | Toggle dictation   |
-| F4     | What is this?      |
-| F5     | Describe room      |
-| F6     | Read text          |
-| F7     | What do you see?   |
 
 ## Setup
 
@@ -33,6 +23,9 @@ Get the latest APK from [Releases](../../releases)
 4. Connect an 8BitDo controller in **Keyboard Mode**, then open the 8BitDo Ultimate Software app and map your buttons as shown below:
 
    ![Controller Setup Instructions](assets/controller_setup.png)
+
+5. Go into settings in the app to learn more about what each button on the controller does
+6. It is recommended to switch off VoiceOver/TalkBack when using the controller
 
 ## Development
 

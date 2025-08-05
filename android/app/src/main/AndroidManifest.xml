@@ -15,7 +15,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="gemma_chat"
+        android:label="Gemma Vision"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:fullBackupContent="false"
