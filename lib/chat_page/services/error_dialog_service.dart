@@ -96,7 +96,7 @@ class ErrorDialogService {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'Try closing other apps to free up memory, or restart your device.',
+                          'Try closing other apps to free up memory, or restart your device. If nothing else works try deleting the app and reinstalling it.',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.blue[800],
@@ -205,7 +205,7 @@ class ErrorDialogService {
           ],
         ),
         content: const Text(
-          'The AI model still cannot be loaded. This might be a device compatibility issue or the model file may need to be re-downloaded.',
+          'The AI model still cannot be loaded. This might be a device compatibility issue or the model file may need to be re-downloaded. If nothing else works try deleting the app and reinstalling it.',
         ),
         actions: [
           TextButton(
