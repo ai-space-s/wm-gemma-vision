@@ -320,15 +320,31 @@ class _SettingsPageState extends State<SettingsPage> {
     const data = [
       ('Right Bumper', 'F1', 'Send with photo'),
       ('Large Right Trigger', 'F2', 'Toggle voice input'),
-      ('Plus icon', 'F3', 'New chat'),
-      ('X top round button', 'F4', 'Find exit'),
+      (
+        'Plus button (the small flat button in the centre top right)',
+        'F3',
+        'New chat',
+      ),
+      ('X top round button', 'F4', 'What is this?'),
       ('A right round button', 'F5', 'Describe room'),
       ('Y left round button', 'F6', 'Read text'),
       ('B bottom round button', 'F7', 'Tell me what you see'),
-      ('Heart button', 'F8', 'Toggle settings'),
+      (
+        'Heart button (the small flat button in the centre bottom right)',
+        'F8',
+        'Toggle settings',
+      ),
       ('Small Left Bumper', 'F9', 'Send text only'),
-      ('Star button', 'F10', 'Toggle messages'),
-      ('Minus button', 'Enter', 'Activate button'),
+      (
+        'Star button (the small flat button in the centre bottom left)',
+        'F10',
+        'Toggle show messages',
+      ),
+      (
+        'Minus button (the small flat button in the centre top left)',
+        'Enter',
+        'Activate button',
+      ),
     ];
 
     Widget row(String a, String b, String c, {bool header = false}) {
