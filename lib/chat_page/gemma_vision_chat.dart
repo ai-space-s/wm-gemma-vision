@@ -11,7 +11,7 @@ import 'services/speech_service.dart';
 import 'services/streaming_tts_service.dart';
 import 'services/text_recognition_service.dart';
 import 'models/message_models.dart';
-import 'handlers/initialization_handler.dart';
+import '/error_recovery_page.dart';
 import 'handlers/keyboard_handler.dart';
 import 'widgets/chat_ui_builder.dart';
 import '../settings_page.dart';
@@ -71,7 +71,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _initAnimations();
-    _bootstrap(); // Start complex service initialization
+    _bootstrap(); // Start service initialization
   }
 
   /// Setup smooth page entry animations
@@ -93,7 +93,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         );
   }
 
-  /// Complex service initialization with crash recovery and lifecycle guards
+  /// Service initialization with crash recovery and lifecycle guards
   Future<void> _bootstrap() async {
     if (_disposed) return;
 
@@ -155,14 +155,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         _slideController.forward();
       }
     } catch (e) {
-      // Handle bootstrap failures (model missing, permissions, etc.)
-      if (mounted && !_disposed) {
-        await InitializationHandler.handleInitError(
-          context: context,
-          mounted: mounted,
-          disposed: _disposed,
-          redirectedOnError: _redirectedOnError,
-          setRedirectedOnError: (v) => _redirectedOnError = v,
+      // Handle bootstrap failures directly - navigate to error recovery page
+      debugPrint("Gemma service initialization failed: $e");
+
+      if (mounted && !_disposed && !_redirectedOnError) {
+        _redirectedOnError = true;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const ErrorRecoveryPage()),
         );
       }
     }
@@ -229,7 +228,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _buildMainContent() {
-    /// Complex keyboard shortcut system with cross-platform accessibility support
+    /// Keyboard shortcut system with cross-platform accessibility support
     return Shortcuts(
       shortcuts: _keyboardHandler!.shortcuts,
       child: Actions(

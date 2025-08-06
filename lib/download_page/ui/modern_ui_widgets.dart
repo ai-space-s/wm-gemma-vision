@@ -161,7 +161,7 @@ class ModernUIWidgets {
       case DownloadStatus.notStarted:
         title = "Ready to Download";
         subtitle =
-            "You'll need to create a free Hugging Face account to accept the model license and download. Requires 3.14GB of storage space.";
+            "You'll need to create a free Hugging Face account to accept the model license and download. Requires around 4GB of storage space.";
         break;
       case DownloadStatus.checkingAccess:
         title = "Checking Access";
@@ -178,7 +178,8 @@ class ModernUIWidgets {
         break;
       case DownloadStatus.downloading:
         title = "Downloading";
-        subtitle = "This may take a few minutes please do not close the app.";
+        subtitle =
+            "This may take a few minutes to half an hour on slower connections - please do not close the app. The progress bar updates in increments and may seem frozen at times, but the download is still working.";
         break;
       case DownloadStatus.paused:
         title = "Download Paused";
@@ -200,7 +201,7 @@ class ModernUIWidgets {
       case DownloadStatus.cancelled:
         title = "Ready to Download";
         subtitle =
-            "You'll need to create a free Hugging Face account to accept the model license and download. Requires 3.14GB of storage space.";
+            "You'll need to create a free Hugging Face account to accept the model license and download. Requires around 4GB of storage space.";
         break;
     }
 

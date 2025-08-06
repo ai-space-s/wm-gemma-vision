@@ -55,30 +55,6 @@ class GemmaService {
     _initialised = true;
   }
 
-  /// High-performance streaming: returns raw token stream for custom processing
-  /// Caller handles throttling, buffering, and UI updates for maximum flexibility
-  Future<Stream<String>> sendWithStreamingDirect({
-    required String text,
-    File? image,
-  }) async {
-    // Add user message to chat history (supports optional image)
-    if (image != null) {
-      final bytes = await image.readAsBytes();
-      await _chat!.addQuery(
-        Message.withImage(text: text, imageBytes: bytes, isUser: true),
-      );
-    } else {
-      await _chat!.addQuery(Message.text(text: text, isUser: true));
-    }
-
-    // Return filtered stream containing only text tokens (excludes metadata)
-    return _chat!
-        .generateChatResponseAsync()
-        .where((res) => res is TextResponse)
-        .map((res) => (res as TextResponse).token);
-  }
-
-  /// Legacy callback-based streaming for backward compatibility
   /// Provides detailed performance statistics and error handling
   Future<void> sendWithStreaming({
     required String text,

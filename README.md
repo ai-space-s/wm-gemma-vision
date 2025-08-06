@@ -1,36 +1,38 @@
-# Gemma Vision
+# Gemma Vision  
 
-AI vision assistant for blind users. Built with Google’s Gemma 3n model to describe scenes, read text, and identify objects - all via a voice-first interface.
+AI vision assistant for the blind. Built with Google’s Gemma 3n model to describe scenes, read text, and identify objects – all via a voice-first interface.  
 
-## Features
+## Features  
 
 - **8BitDo controller support** for hands-free operation  
-- **Offline AI processing** after initial model download 
-- **Complete privacy** nothing leaves your device
+- **Offline AI processing** after initial model download  
+- **Complete privacy** — nothing leaves your device  
 - **Scene description** and text reading  
-- **Ask follow up questions** Gemma remembers previous photos you've sent
+- **Ask follow-up questions** — Gemma remembers previous photos you've sent  
 - **Screen reader optimized** for VoiceOver and TalkBack  
 
-## Download
+## Download  
 
-Get the latest APK from [Releases](../../releases)
+Get the latest APK from [Releases](../../releases)  
 
-## Setup
+## Setup  
 
 1. Install APK  
 2. Download AI model (~3 GB)  
 3. Grant camera & mic permissions  
-4. Connect an 8BitDo controller in **Keyboard Mode**, then open the 8BitDo Ultimate Software app and map your buttons as shown below:
+4. Connect an 8BitDo controller in Keyboard Mode, then open the **8BitDo Ultimate Software** app and map your buttons as shown below:  
+   ![Controller Setup Instructions](assets/controller_setup.png)  
+5. Go into settings in the app to learn more about what each button on the controller does  
+6. It is recommended to switch off VoiceOver/TalkBack when using the controller  
 
-   ![Controller Setup Instructions](assets/controller_setup.png)
-
-5. Go into settings in the app to learn more about what each button on the controller does
-6. It is recommended to switch off VoiceOver/TalkBack when using the controller
-
-## Development
+## Development  
 
 ```bash
 git clone https://github.com/TGTech06/gemmavision.git
 cd gemmavision
 flutter pub get
 flutter run
+
+---
+<p align="center"><i>Made with ❤️ for my brother Matteo and the blind community.<br>
+<a href="https://gemmavision.com/">Learn more</a></i></p>  
