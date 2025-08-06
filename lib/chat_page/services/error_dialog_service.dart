@@ -1,5 +1,7 @@
 // lib/chat_page/services/error_dialog_service.dart
 import 'package:flutter/material.dart';
+import 'package:gemma_chat/download_page/services/download_manager.dart';
+import 'package:gemma_chat/download_page/services/download_state_manager.dart';
 
 /// User-friendly error dialogs for AI model initialization failures
 class ErrorDialogService {
@@ -24,18 +26,18 @@ class ErrorDialogService {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Warning icon with gradient background
+                // Error icon with gradient background
                 Container(
                   width: 64,
                   height: 64,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
-                      colors: [Colors.orange[400]!, Colors.orange[600]!],
+                      colors: [Colors.red[400]!, Colors.red[600]!],
                     ),
                   ),
                   child: const Icon(
-                    Icons.warning_rounded,
+                    Icons.error_outline_rounded,
                     size: 32,
                     color: Colors.white,
                   ),
@@ -44,7 +46,7 @@ class ErrorDialogService {
 
                 // Clear title explaining the issue
                 Text(
-                  'AI Model Failed to Load',
+                  'Failed to Load Model',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -54,7 +56,7 @@ class ErrorDialogService {
                 ),
                 const SizedBox(height: 16),
 
-                // Detailed explanation of possible causes
+                // Clear explanation of what happened
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -66,7 +68,7 @@ class ErrorDialogService {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Possible causes:',
+                        'Possible cause:',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -74,48 +76,36 @@ class ErrorDialogService {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      // List of common causes with icons
-                      ..._buildErrorCauses(),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Helpful suggestion box
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue[200]!, width: 1),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.lightbulb_outline,
-                        color: Colors.blue[600],
-                        size: 24,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Try closing other apps to free up memory, or restart your device. If nothing else works try deleting the app and reinstalling it.',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.blue[800],
-                            height: 1.3,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.download_done,
+                            size: 18,
+                            color: Colors.orange[600],
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Model did not download correctly - the file may be corrupted or incomplete',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[700],
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 24),
 
-                // Action buttons with clear hierarchy
+                // Action buttons
                 Column(
                   children: [
-                    // Primary action: Try Again
+                    // Primary action: Delete & Retry Download
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -134,14 +124,54 @@ class ErrorDialogService {
                           ],
                         ),
                         child: TextButton(
-                          onPressed: () => Navigator.of(context).pop('retry'),
+                          onPressed: () async {
+                            // Show loading while deleting
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (BuildContext context) {
+                                return Dialog(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(20),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const CircularProgressIndicator(),
+                                        const SizedBox(width: 20),
+                                        const Text(
+                                          'Deleting corrupted model...',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+
+                            // Delete the model files
+                            await DownloadManager.cancelAndDeleteDownload();
+                            await DownloadStateManager.clearDownloadState();
+
+                            // Use the nuclear cleanup to be absolutely sure
+                            await DownloadManager.cleanupAllModelFiles();
+
+                            // Close loading dialog
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                            }
+
+                            // Return to caller with 'delete' action
+                            if (context.mounted) {
+                              Navigator.of(context).pop('delete');
+                            }
+                          },
                           style: TextButton.styleFrom(
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                           child: const Text(
-                            'Try Again',
+                            'Delete Model & Retry Download',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 16,
@@ -153,7 +183,7 @@ class ErrorDialogService {
                     ),
                     const SizedBox(height: 12),
 
-                    // Secondary action: Return to model setup
+                    // Secondary action: Quit app
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -163,15 +193,14 @@ class ErrorDialogService {
                           border: Border.all(color: Colors.grey[300]!),
                         ),
                         child: TextButton(
-                          onPressed: () =>
-                              Navigator.of(context).pop('download'),
+                          onPressed: () => Navigator.of(context).pop('quit'),
                           style: TextButton.styleFrom(
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                           child: Text(
-                            'Return to Model Setup',
+                            'Quit App',
                             style: TextStyle(
                               color: Colors.grey[700],
                               fontSize: 16,
@@ -191,7 +220,7 @@ class ErrorDialogService {
     );
   }
 
-  /// Simple dialog when retry attempts fail - directs user to model setup
+  /// Simple dialog when retry attempts fail
   static Future<void> showRetryFailedDialog(
     BuildContext context,
     VoidCallback onGoToSetup,
@@ -205,11 +234,11 @@ class ErrorDialogService {
           children: [
             Icon(Icons.error_outline, color: Colors.red[600], size: 28),
             const SizedBox(width: 12),
-            const Text('Retry Failed'),
+            const Text('Model Still Not Working'),
           ],
         ),
         content: const Text(
-          'The AI model still cannot be loaded. This might be a device compatibility issue or the model file may need to be re-downloaded. If nothing else works try deleting the app and reinstalling it.',
+          'The model file appears to be corrupted. Please use "Delete Model & Retry Download" to clean up and download a fresh copy.',
         ),
         actions: [
           TextButton(
@@ -217,51 +246,10 @@ class ErrorDialogService {
               Navigator.of(context).pop();
               onGoToSetup();
             },
-            child: const Text('Go to Model Setup'),
+            child: const Text('Go to Setup'),
           ),
         ],
       ),
     );
-  }
-
-  /// Build list of common error causes with icons for visual clarity
-  static List<Widget> _buildErrorCauses() {
-    final causes = [
-      {'icon': Icons.memory, 'text': 'Insufficient device memory (RAM)'},
-      {
-        'icon': Icons.settings_applications,
-        'text': 'Backend compatibility issue',
-      },
-      {'icon': Icons.device_unknown, 'text': 'Device performance constraints'},
-      {'icon': Icons.folder_open, 'text': 'Model format incompatibility'},
-    ];
-
-    return causes
-        .map(
-          (cause) => Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                Icon(
-                  cause['icon'] as IconData,
-                  size: 16,
-                  color: Colors.orange[600],
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    cause['text'] as String,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                      height: 1.2,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        )
-        .toList();
   }
 }

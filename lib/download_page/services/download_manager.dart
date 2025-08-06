@@ -251,6 +251,11 @@ class DownloadManager {
     }
   }
 
+  /// Public method to clean up all model files
+  static Future<void> cleanupAllModelFiles() async {
+    await _cleanupModelFiles();
+  }
+
   /// Nuclear cleanup: find and delete ANY model files in app directory
   static Future<void> _cleanupModelFiles() async {
     try {

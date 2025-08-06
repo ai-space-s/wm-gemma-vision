@@ -178,8 +178,7 @@ class ModernUIWidgets {
         break;
       case DownloadStatus.downloading:
         title = "Downloading";
-        subtitle =
-            "This may take a few minutes, feel free to come back later. The download will continue in the background.";
+        subtitle = "This may take a few minutes please do not close the app.";
         break;
       case DownloadStatus.paused:
         title = "Download Paused";

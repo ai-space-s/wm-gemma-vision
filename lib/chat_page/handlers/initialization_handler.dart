@@ -6,7 +6,7 @@ import '../services/bootstrap_manager.dart';
 
 /// Handles bootstrap failures and provides recovery options
 class InitializationHandler {
-  /// Show error dialog and handle user choice (retry or redownload model)
+  /// Show error dialog and handle user choice (delete & retry or quit)
   static Future<void> handleInitError({
     required BuildContext context,
     required bool mounted,
@@ -28,7 +28,12 @@ class InitializationHandler {
           context,
         );
 
-        if (result == 'retry') {
+        if (result == 'delete') {
+          // Model files have already been deleted by the dialog
+          // Navigate to download page to start fresh
+          navigateToDownloadPage(context);
+        } else if (result == 'retry') {
+          // Legacy option if you still have it
           await retryInitialization(
             context: context,
             mounted: () => mounted,
