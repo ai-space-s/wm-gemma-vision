@@ -30,8 +30,8 @@ Get the latest APK from [Releases](../../releases)
 ## Development  
 
 ```bash
-git clone https://github.com/TGTech06/gemmavision.git
-cd gemmavision
+git clone https://github.com/TGTech06/gemma-vision.git
+cd gemma-vision
 flutter pub get
 flutter run
 ```
