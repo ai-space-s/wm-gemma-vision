@@ -32,6 +32,7 @@ git clone https://github.com/TGTech06/gemmavision.git
 cd gemmavision
 flutter pub get
 flutter run
-
-**Made with ❤️ for my brother Matteo and the blind community.**  
-[Learn more](https://gemmavision.com/)  
+```
+---
+<p align="center"><i>Made with ❤️ for my brother Matteo and the blind community.<br>
+<a href="https://gemmavision.com/">Learn more</a></i></p>  
