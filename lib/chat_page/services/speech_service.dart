@@ -1,4 +1,5 @@
 // lib/chat_page/services/speech_service.dart
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -83,7 +84,14 @@ class SpeechService {
   /// Use system accessibility announcements for brief notifications
   void _announce(String message) {
     if (message.isEmpty) return;
-    SemanticsService.announce(message, ui.TextDirection.ltr);
+    debugPrint('supported: ${SemanticsService.isAnnounceSupported()}');
+    if (Platform.isAndroid) {
+      SemanticsService.isAnnounceSupported()
+          ? SemanticsService.announce(message, ui.TextDirection.ltr)
+          : _tts.speak(message);
+    } else {
+      _tts.speak(message);
+    }
   }
 
   /* Voice dictation functionality */
