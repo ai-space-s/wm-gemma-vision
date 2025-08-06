@@ -25,6 +25,8 @@ Get the latest APK from [Releases](../../releases)
 5. Go into settings in the app to learn more about what each button on the controller does  
 6. It is recommended to switch off VoiceOver/TalkBack when using the controller  
 
+<p align="center"><a href="https://gemmavision.com/"><b>Learn more at gemmavision.com</b></a></p>  
+
 ## Development  
 
 ```bash
@@ -35,4 +37,3 @@ flutter run
 ```
 ---
 <p align="center"><i>Made with ❤️ for my brother Matteo and the blind community.<br>
-<a href="https://gemmavision.com/">Learn more</a></i></p>  
