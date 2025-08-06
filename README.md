@@ -33,6 +33,5 @@ cd gemmavision
 flutter pub get
 flutter run
 
----
-<p align="center"><i>Made with ❤️ for my brother Matteo and the blind community.<br>
-<a href="https://gemmavision.com/">Learn more</a></i></p>  
+**Made with ❤️ for my brother Matteo and the blind community.**  
+[Learn more](https://gemmavision.com/)  
