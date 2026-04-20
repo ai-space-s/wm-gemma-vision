@@ -1,17 +1,27 @@
-// download_page/models/enums.dart
+// lib/download_page/models/enums.dart
 
-// All possible download states for UI state management
+/// Enum representing the current status of the download process.
 enum DownloadStatus {
   notStarted,
   checkingAccess,
   authenticating,
   awaitingLicenseAcceptance,
   downloading,
+  copying, // Assets에서 복사 중인 상태
   paused,
   completed,
   failed,
-  cancelled,
 }
 
-// OAuth token validation states
-enum TokenStatus { notStored, expired, valid }
+/// Enum representing the status of authentication tokens.
+enum TokenStatus {
+  notStored,
+  valid,
+  expired,
+}
+
+/// Enum to identify download target
+enum DownloadTarget {
+  mainModel,
+  functionModel,
+}

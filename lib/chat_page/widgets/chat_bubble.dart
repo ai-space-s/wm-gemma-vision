@@ -3,17 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../models/message_models.dart';
+import '../../app_settings.dart';
 
-/// Chat message bubble with support for text, images, markdown rendering, and performance stats
-/// Handles different message types: text-only, image-only, or combined image+text messages
 class ChatBubble extends StatelessWidget {
   final ChatMessage msg;
 
-  const ChatBubble({Key? key, required this.msg}) : super(key: key);
+  const ChatBubble({super.key, required this.msg});
 
   @override
   Widget build(BuildContext context) {
-    // Combined image+text messages: show as connected bubbles
     if (msg.imageFile != null && msg.text.isNotEmpty) {
       return Column(
         crossAxisAlignment: msg.isUser
@@ -21,22 +19,19 @@ class ChatBubble extends StatelessWidget {
             : CrossAxisAlignment.start,
         children: [
           _buildImageBubble(context),
-          const SizedBox(height: 2), // Tight spacing to feel connected
+          const SizedBox(height: 2),
           _buildTextBubble(context),
         ],
       );
     }
 
-    // Image-only message
     if (msg.imageFile != null) {
       return _buildImageBubble(context);
     }
 
-    // Text-only message (most common case)
     return _buildTextBubble(context);
   }
 
-  /// Image bubble with tap-to-expand and error handling
   Widget _buildImageBubble(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
@@ -62,7 +57,6 @@ class ChatBubble extends StatelessWidget {
                 child: Image.file(
                   msg.imageFile!,
                   fit: BoxFit.contain,
-                  // Graceful error handling for corrupted/missing images
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
                       height: 200,
@@ -97,8 +91,28 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
-  /// Text bubble with markdown support, streaming indicator, and performance stats
   Widget _buildTextBubble(BuildContext context) {
+    final highContrast = AppSettings.instance.highContrastEnabled;
+
+    // [수정] 고대비 모드 및 Function Call 색상 로직 개선
+    // 기본 AI 배경색
+    Color aiNormalColor = highContrast ? Colors.black : Colors.grey.shade200;
+    // Function Call 결과 배경색 (연한 인디고/파랑 계열)
+    Color aiFunctionColor = highContrast ? Colors.black : Colors.indigo.shade50;
+
+    final userBubbleColor = highContrast ? Colors.black : Colors.blueAccent;
+    // msg.isFunctionResult가 true이면 다른 색 사용
+    final aiBubbleColor = msg.isFunctionResult ? aiFunctionColor : aiNormalColor;
+
+    // 고대비일 경우 테두리로 구분
+    final border = highContrast
+        ? Border.all(color: Colors.white, width: 2)
+        : (msg.isUser ? null : (msg.isFunctionResult ? Border.all(color: Colors.indigo.shade100) : null));
+
+    final textColor = highContrast
+        ? Colors.white
+        : (msg.isUser ? Colors.white : Colors.black87);
+
     return Padding(
       padding: EdgeInsets.only(
         left: msg.isUser ? 60.0 : 8.0,
@@ -113,8 +127,8 @@ class ChatBubble extends StatelessWidget {
             maxWidth: MediaQuery.of(context).size.width * 0.7,
           ),
           decoration: BoxDecoration(
-            // User messages: blue, AI messages: light gray
-            color: msg.isUser ? Colors.blueAccent : Colors.grey.shade200,
+            color: msg.isUser ? userBubbleColor : aiBubbleColor,
+            border: border,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Padding(
@@ -126,18 +140,16 @@ class ChatBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (msg.text.isNotEmpty) _buildMessageContent(context),
+                if (msg.text.isNotEmpty) _buildMessageContent(context, textColor),
 
-                // Performance stats for completed AI responses
                 if (msg.stats != null &&
                     !msg.isStreaming &&
                     msg.text.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 6.0),
-                    child: _buildStatsWidget(msg.stats!),
+                    child: _buildStatsWidget(msg.stats!, textColor),
                   ),
 
-                // Streaming indicator for messages being generated
                 if (msg.isStreaming)
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
@@ -146,9 +158,7 @@ class ChatBubble extends StatelessWidget {
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          msg.isUser ? Colors.white : Colors.blueAccent,
-                        ),
+                        valueColor: AlwaysStoppedAnimation<Color>(textColor),
                       ),
                     ),
                   ),
@@ -160,22 +170,18 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
-  /// Render message content with markdown support for AI responses
-  Widget _buildMessageContent(BuildContext context) {
-    // GptMarkdown handles AI responses with markdown formatting, LaTeX, code blocks
-    // User messages use simple text since they typically don't contain markdown
+  Widget _buildMessageContent(BuildContext context, Color textColor) {
     return GptMarkdown(
       msg.text,
       style: TextStyle(
-        color: msg.isUser ? Colors.white : Colors.black87,
+        color: textColor,
         fontSize: 15,
         fontWeight: FontWeight.w400,
-        height: 1.3, // Line height for readability
+        height: 1.3,
       ),
     );
   }
 
-  /// Full-screen image viewer with pinch-to-zoom
   void _showFullScreenImage(BuildContext context, File imageFile) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -191,7 +197,7 @@ class ChatBubble extends StatelessWidget {
               tag: 'image_${msg.text}_${imageFile.path}',
               child: InteractiveViewer(
                 minScale: 0.5,
-                maxScale: 3.0, // Allow 3x zoom
+                maxScale: 3.0,
                 child: Image.file(
                   imageFile,
                   fit: BoxFit.contain,
@@ -221,12 +227,12 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
-  /// Performance statistics widget showing AI response metrics
-  Widget _buildStatsWidget(MessageStats stats) {
+  Widget _buildStatsWidget(MessageStats stats, Color textColor) {
+    final opacityColor = textColor.withOpacity(0.7);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.1),
+        color: textColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -235,40 +241,17 @@ class ChatBubble extends StatelessWidget {
           Icon(
             Icons.analytics_outlined,
             size: 10,
-            color: msg.isUser ? Colors.white70 : Colors.black54,
+            color: opacityColor,
           ),
           const SizedBox(width: 3),
-          // Core metrics: token count and total time
           Text(
             '${stats.tokenCount} tokens • ${stats.totalLatency!.toStringAsFixed(1)}s',
             style: TextStyle(
-              color: msg.isUser ? Colors.white70 : Colors.black54,
+              color: opacityColor,
               fontSize: 10,
               fontWeight: FontWeight.w400,
             ),
           ),
-          // Time to first token (latency metric)
-          if (stats.timeToFirstToken != null) ...[
-            Text(
-              ' • TTFT ${stats.timeToFirstToken!.toStringAsFixed(1)}s',
-              style: TextStyle(
-                color: msg.isUser ? Colors.white70 : Colors.black54,
-                fontSize: 10,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-          // Generation speed (tokens per second)
-          if (stats.decodeSpeed != null) ...[
-            Text(
-              ' • ${stats.decodeSpeed!.toStringAsFixed(1)} tok/s',
-              style: TextStyle(
-                color: msg.isUser ? Colors.white70 : Colors.black54,
-                fontSize: 10,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
         ],
       ),
     );

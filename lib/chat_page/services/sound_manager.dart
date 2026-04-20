@@ -1,14 +1,13 @@
 // lib/chat_page/services/sound_manager.dart
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/services.dart';
+import '../../app_settings.dart';
 
 /// Centralized audio management for app sounds with fallback handling
-/// Manages multiple audio players for different sound types to avoid conflicts
 class SoundManager {
   static final SoundManager _instance = SoundManager._internal();
   static SoundManager get instance => _instance;
 
-  // Separate players for different audio types to prevent interference
   final AudioPlayer _audioPlayer = AudioPlayer(); // General sounds
   final AudioPlayer _loadingPlayer = AudioPlayer(); // Loading loop
   final AudioPlayer _dictationPlayer = AudioPlayer(); // Speech feedback
@@ -16,54 +15,75 @@ class SoundManager {
 
   SoundManager._internal();
 
-  /// Play satisfying woosh sound when messages are sent (max volume for feedback)
+  bool get _earconsEnabled => AppSettings.instance.earconsEnabled;
+  bool get _hapticsEnabled => AppSettings.instance.hapticsEnabled;
+
+  Future<void> playConnectionCheck() async {
+    try {
+      // [수정] 호환성을 위해 vibrate 사용
+      await HapticFeedback.vibrate();
+
+      if (!_earconsEnabled) return;
+      await _audioPlayer.setVolume(1.0);
+      await _audioPlayer.play(AssetSource('woosh.mp3'));
+    } catch (e) {
+      print('Error playing connection check: $e');
+    }
+  }
+
+  /// [수정] 햅틱 피드백을 lightImpact/mediumImpact 대신 vibrate로 변경하여 확실한 피드백 제공
   Future<void> playWoosh() async {
     try {
-      await _audioPlayer.setVolume(1.0); // Maximum volume for clear feedback
+      if (_hapticsEnabled) {
+        // [수정] 일부 기기에서 Impact 계열 피드백이 작동하지 않는 문제 해결을 위해 표준 진동 사용
+        await HapticFeedback.vibrate();
+      }
+      if (!_earconsEnabled) return;
+      await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play(AssetSource('woosh.mp3'));
     } catch (e) {
       print('Error playing woosh sound: $e');
-      // Graceful fallback to system sound
       await SystemSound.play(SystemSoundType.click);
     }
   }
 
-  /// Play dictation start sound with fallback to haptic feedback
   Future<void> playDictationStart() async {
     try {
-      await _dictationPlayer.setVolume(1.0); // Max volume for accessibility
+      if (_hapticsEnabled) {
+        // [수정] vibrate로 통일
+        await HapticFeedback.vibrate();
+      }
+      if (!_earconsEnabled) return;
+      await _dictationPlayer.setVolume(1.0);
       await _dictationPlayer.play(AssetSource('dictation_start.mp3'));
-      print('Playing dictation start sound');
     } catch (e) {
-      print('Error playing dictation start sound: $e');
-      // Multi-modal fallback: haptic + system sound
-      await HapticFeedback.lightImpact();
-      await SystemSound.play(SystemSoundType.click);
+      // Fallback
+      if (_hapticsEnabled) await HapticFeedback.vibrate();
     }
   }
 
-  /// Play dictation stop sound with fallback to haptic feedback
   Future<void> playDictationStop() async {
     try {
-      await _dictationPlayer.setVolume(1.0); // Max volume for accessibility
+      if (_hapticsEnabled) {
+        // [수정] vibrate로 통일
+        await HapticFeedback.vibrate();
+      }
+      if (!_earconsEnabled) return;
+      await _dictationPlayer.setVolume(1.0);
       await _dictationPlayer.play(AssetSource('dictation_stop.mp3'));
-      print('Playing dictation stop sound');
     } catch (e) {
-      print('Error playing dictation stop sound: $e');
-      // Stronger haptic feedback for "stop" action
-      await HapticFeedback.mediumImpact();
-      await SystemSound.play(SystemSoundType.click);
+      if (_hapticsEnabled) await HapticFeedback.vibrate();
     }
   }
 
-  /// Start looping loading sound during AI processing
   Future<void> playLoading() async {
-    if (_isLoadingPlaying) return; // Prevent duplicate loading sounds
+    if (_isLoadingPlaying) return;
 
     try {
       _isLoadingPlaying = true;
-      await _loadingPlayer.setReleaseMode(ReleaseMode.loop); // Continuous loop
-      await _loadingPlayer.setVolume(0.8); // Slightly lower than UI sounds
+      if (!_earconsEnabled) return;
+      await _loadingPlayer.setReleaseMode(ReleaseMode.loop);
+      await _loadingPlayer.setVolume(0.8);
       await _loadingPlayer.play(AssetSource('loading.mp3'));
     } catch (e) {
       _isLoadingPlaying = false;
@@ -71,41 +91,34 @@ class SoundManager {
     }
   }
 
-  /// Stop loading sound when AI processing completes
   Future<void> stopLoading() async {
     if (!_isLoadingPlaying) return;
 
     try {
       _isLoadingPlaying = false;
+      if (!_earconsEnabled) return;
       await _loadingPlayer.stop();
     } catch (e) {
       print('Error stopping loading sound: $e');
     }
   }
 
-  /// Pause loading sound temporarily (e.g., when TTS starts speaking)
   Future<void> pauseLoading() async {
     if (!_isLoadingPlaying) return;
-
     try {
+      if (!_earconsEnabled) return;
       await _loadingPlayer.pause();
-    } catch (e) {
-      print('Error pausing loading sound: $e');
-    }
+    } catch (e) {}
   }
 
-  /// Resume loading sound after temporary pause
   Future<void> resumeLoading() async {
     if (!_isLoadingPlaying) return;
-
     try {
+      if (!_earconsEnabled) return;
       await _loadingPlayer.resume();
-    } catch (e) {
-      print('Error resuming loading sound: $e');
-    }
+    } catch (e) {}
   }
 
-  /// Clean up all audio players
   void dispose() {
     _audioPlayer.dispose();
     _loadingPlayer.dispose();

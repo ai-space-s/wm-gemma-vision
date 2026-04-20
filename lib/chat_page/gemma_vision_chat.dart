@@ -1,67 +1,66 @@
-//chat_page/gemma_vision_chat.dart
+// lib/chat_page/gemma_vision_chat.dart
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_gemma/pigeon.g.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/prompt_bar.dart';
 import 'services/bootstrap_manager.dart';
 import 'services/chat_helpers.dart';
 import 'services/speech_service.dart';
 import 'services/streaming_tts_service.dart';
 import 'services/text_recognition_service.dart';
+import 'services/sound_manager.dart'; // 사운드 매니저 추가
 import 'models/message_models.dart';
-import '/error_recovery_page.dart';
+import '../error_recovery_page.dart';
 import 'handlers/keyboard_handler.dart';
 import 'widgets/chat_ui_builder.dart';
 import '../settings_page.dart';
 import 'widgets/semantic_button_registry.dart';
 import 'config/system_prompts.dart';
+import 'services/chat_storage_service.dart';
+import '../app_settings.dart'; // 앱 설정 추가
 
 /// Main chat interface with AI vision model - handles bootstrap and lifecycle management
 class ChatPage extends StatefulWidget {
-  const ChatPage({Key? key}) : super(key: key);
+  const ChatPage({super.key});
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
 class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   /* Core state */
-  /// Chat message history
   final _msgs = <ChatMessage>[];
 
-  /// UI toggle states
   bool _showMessages = false;
   bool _showCamera = true;
 
-  /// TTS services (initially temporary, replaced after bootstrap)
   late FlutterTts _tts = FlutterTts();
   late StreamingTtsService _streamingTts = StreamingTtsService(_tts);
 
-  /// Service references (nullable until bootstrap completes)
   ChatHelpers? _chatHelpers;
   SpeechService? _speechService;
   KeyboardHandler? _keyboardHandler;
   TextRecognitionService? _textRecognition;
 
-  /// AI model configuration
-  String _systemCtx = SystemPrompts.blindUserNavigation;
+  String _systemCtx = SystemPrompts.defaultSystemContext;
   PreferredBackend _backend = PreferredBackend.cpu;
 
-  /* UI control */
   final _promptBarKey = GlobalKey<PromptBarState>();
   bool _initialising = true;
-  bool _redirectedOnError = false; // Prevents duplicate error handling
-  bool _disposed = false; // Lifecycle guard
+  bool _redirectedOnError = false;
+  bool _disposed = false;
 
-  /* Focus management for accessibility */
   final FocusNode _rootFocus = FocusNode();
-
-  /* Auto-scroll for message list */
   final ScrollController _scrollController = ScrollController();
   Timer? _autoScrollTimer;
 
-  /* Page transition animations */
+  final ChatStorageService _chatStorage = ChatStorageService.instance;
+  String? _currentChatId;
+  String? _currentChatName;
+
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late Animation<double> _fadeAnimation;
@@ -71,10 +70,37 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _initAnimations();
-    _bootstrap(); // Start service initialization
+    // 설정을 먼저 불러온 후 부트스트랩 실행
+    _loadSettings().then((_) => _bootstrap());
   }
 
-  /// Setup smooth page entry animations
+  /// 저장된 설정을 불러옵니다 (AppSettings 및 SharedPreferences)
+  Future<void> _loadSettings() async {
+    // [수정] AppSettings를 로드하여 프롬프트 설정을 가져옴
+    await AppSettings.instance.load();
+
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      // 시스템 컨텍스트는 AppSettings에서 가져옴
+      _systemCtx = AppSettings.instance.systemContext;
+
+      // 백엔드 설정 로드
+      final backendIndex = prefs.getInt('backendIndex');
+      if (backendIndex != null && backendIndex >= 0 && backendIndex < PreferredBackend.values.length) {
+        _backend = PreferredBackend.values[backendIndex];
+      }
+    });
+  }
+
+  /// 설정을 저장합니다 (주로 백엔드 설정)
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    // _systemCtx는 AppSettings에서 관리하므로 여기서는 백엔드만 저장해도 무방하나,
+    // 필요 시 AppSettings update 로직을 사용할 수 있음.
+    // 여기서는 백엔드 인덱스만 SharedPref에 직접 저장.
+    await prefs.setInt('backendIndex', _backend.index);
+  }
+
   void _initAnimations() {
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
@@ -93,18 +119,15 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         );
   }
 
-  /// Service initialization with crash recovery and lifecycle guards
   Future<void> _bootstrap() async {
     if (_disposed) return;
 
     try {
-      // BootstrapManager handles heavy lifting: TTS, AI model, speech, camera, etc.
       final result = await BootstrapManager.bootstrap(
         context: context,
         systemContext: _systemCtx,
         backend: _backend,
         promptBarKey: _promptBarKey,
-        // Callback functions with lifecycle safety checks
         onToggleMessages: () {
           if (mounted && !_disposed) {
             setState(() => _showMessages = !_showMessages);
@@ -123,24 +146,25 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         onQuickAction3: _quickAction3,
         onQuickAction4: _quickAction4,
         onToggleVoice: () {
-          _speechService?.toggleDictation(); // F2 key handler
+          _speechService?.toggleDictation();
         },
-        // Lifecycle callbacks for bootstrap safety
+        // [수정] 연결 테스트 콜백 연결
+        onConnectionTest: () {
+          SoundManager.instance.playConnectionCheck();
+        },
         isMounted: () => mounted,
         isDisposed: () => _disposed,
         setState: (fn) {
           setState(fn);
           if (_showMessages) {
-            _scheduleAutoScroll(); // Auto-scroll when messages update
+            _scheduleAutoScroll();
           }
         },
       );
 
-      // Clean up temporary services before replacing with bootstrap results
       _streamingTts.stop();
       _tts.stop();
 
-      // Store bootstrap results
       _tts = result.tts;
       _streamingTts = result.streamingTts;
       _chatHelpers = result.chatHelpers;
@@ -150,12 +174,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
       if (mounted && !_disposed) {
         setState(() => _initialising = false);
-        _rootFocus.requestFocus(); // Focus for keyboard shortcuts
+        _rootFocus.requestFocus();
         _fadeController.forward();
         _slideController.forward();
       }
     } catch (e) {
-      // Handle bootstrap failures directly - navigate to error recovery page
       debugPrint("Gemma service initialization failed: $e");
 
       if (mounted && !_disposed && !_redirectedOnError) {
@@ -167,9 +190,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
-  /* Auto-scroll to keep latest messages visible */
-
-  /// Debounced scroll scheduling to avoid excessive scrolling
   void _scheduleAutoScroll() {
     _autoScrollTimer?.cancel();
     _autoScrollTimer = Timer(const Duration(milliseconds: 100), () {
@@ -177,7 +197,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     });
   }
 
-  /// Scroll to bottom with safety checks
   void _scrollToBottom({bool force = false}) {
     if (!_showMessages && !force) return;
     if (_scrollController.hasClients) {
@@ -191,7 +210,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _disposed = true; // Set flag first to prevent async operations
+    _disposed = true;
     _autoScrollTimer?.cancel();
     _scrollController.dispose();
     _fadeController.dispose();
@@ -201,21 +220,31 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _speechService?.dispose();
     _textRecognition?.dispose();
     _rootFocus.dispose();
-    SemanticButtonRegistry.clear(); // Clean up accessibility registry
+    SemanticButtonRegistry.clear();
     super.dispose();
   }
 
-  /* Chat operation wrappers with null safety */
   Future<void> _newChat() async =>
-      await _chatHelpers!.newChat(_msgs, _promptBarKey);
+      await _chatHelpers!.newChat(_msgs, _promptBarKey).then((_) {
+        if (mounted && !_disposed) {
+          setState(() {
+            _currentChatId = null;
+            _currentChatName = null;
+          });
+        }
+      });
 
-  Future<void> _captureAndSend(String prompt) async =>
-      await _chatHelpers!.captureAndSend(prompt, _msgs);
+  // [수정] 카메라 캡처 함수 (ChatHelpers의 새 메서드 사용)
+  Future<void> _captureWithCamera(String prompt) async =>
+      await _chatHelpers!.captureWithCamera(prompt, _msgs);
+
+  // [추가] 갤러리 선택 함수
+  Future<void> _pickFromGallery(String prompt) async =>
+      await _chatHelpers!.pickFromGallery(prompt, _msgs);
 
   Future<void> _sendTextOnly(String prompt) async =>
       await _chatHelpers!.sendTextOnly(prompt, _msgs);
 
-  /* Quick action shortcuts for common vision tasks */
   Future<void> _quickAction1() async => _chatHelpers!.quickAction1(_msgs);
   Future<void> _quickAction2() async => _chatHelpers!.quickAction2(_msgs);
   Future<void> _quickAction3() async => _chatHelpers!.quickAction3(_msgs);
@@ -224,11 +253,37 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     if (_initialising) return ChatUIBuilder.buildLoadingScreen();
-    return _buildMainContent();
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Exit App'),
+            content: const Text('Do you really want to exit?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('No'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+        );
+        if (shouldExit == true) {
+          SystemNavigator.pop();
+        }
+      },
+      child: _buildMainContent(),
+    );
   }
 
   Widget _buildMainContent() {
-    /// Keyboard shortcut system with cross-platform accessibility support
     return Shortcuts(
       shortcuts: _keyboardHandler!.shortcuts,
       child: Actions(
@@ -236,13 +291,16 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         child: Focus(
           focusNode: _rootFocus,
           autofocus: true,
-          onKeyEvent: _speechService!.handleFocusKey, // Speech integration
+          onKeyEvent: _speechService!.handleFocusKey,
           child: Scaffold(
-            backgroundColor: const Color(0xFFF8F9FA),
+            backgroundColor: Theme.of(context).colorScheme.surface,
             appBar: ChatUIBuilder.buildCleanAppBar(
               onNewChat: _newChat,
               onToggleSettings: _navigateToSettings,
               isResetting: _chatHelpers!.resetting,
+              onSaveChat: _saveChat,
+              onSaveChatAs: _saveChatAs,
+              onLoadChat: _loadChat,
             ),
             body: FadeTransition(
               opacity: _fadeAnimation,
@@ -250,7 +308,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 position: _slideAnimation,
                 child: Column(
                   children: [
-                    /* View toggle buttons */
                     ChatUIBuilder.buildViewToggleButtons(
                       showMessages: _showMessages,
                       onToggleMessages: () {
@@ -262,8 +319,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       onNewChat: _newChat,
                       isResetting: _chatHelpers!.resetting,
                     ),
-
-                    /* Expandable message list or spacer */
                     if (_showMessages)
                       ChatUIBuilder.buildMessagesContainer(
                         _msgs,
@@ -271,14 +326,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       )
                     else
                       const Expanded(child: SizedBox()),
-
-                    /* Fixed prompt bar at bottom */
                     ChatUIBuilder.buildPromptBarContainer(
                       promptBarKey: _promptBarKey,
-                      onPromptWithPhoto: _captureAndSend,
+                      onPromptWithCamera: _captureWithCamera,  // [연결]
+                      onPromptWithGallery: _pickFromGallery,   // [연결]
                       onPromptTextOnly: _sendTextOnly,
                       disabled:
-                          _chatHelpers!.resetting || _chatHelpers!.isGenerating,
+                      _chatHelpers!.resetting || _chatHelpers!.isGenerating,
                       speechEnabled: _speechService!.speechEnabled,
                       listening: _speechService!.listening,
                       onToggleListening: _speechService!.toggleDictation,
@@ -296,38 +350,234 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
-  /// Navigate to settings with backend switching support
   Future<void> _navigateToSettings() async {
     if (_disposed || !mounted) return;
 
     final result = await Navigator.of(context).push<Map<String, dynamic>>(
       MaterialPageRoute(
+        // [수정] systemContext는 내부에서 AppSettings 사용하므로 별도 전달 불필요할 수 있으나
+        // SettingsPage 생성자 시그니처 유지
         builder: (context) =>
             SettingsPage(systemContext: _systemCtx, backend: _backend),
       ),
     );
 
-    // Process settings changes with full re-bootstrap if backend changed
-    if (result != null && mounted && !_disposed) {
-      final newSystemContext = result['systemContext'] as String?;
-      final newBackend = result['backend'] as PreferredBackend?;
+    if (mounted && !_disposed) {
+      // [수정] 설정 페이지에서 돌아왔을 때 AppSettings의 변경사항 반영
+      setState(() {
+        final newSystemContext = AppSettings.instance.systemContext;
 
-      if (newSystemContext != null && newBackend != null) {
-        setState(() {
+        // 시스템 컨텍스트가 변경되었다면 헬퍼 업데이트
+        if (newSystemContext != _systemCtx) {
           _systemCtx = newSystemContext;
           _chatHelpers!.updateSystemContext(_systemCtx);
+        }
 
-          // Backend change requires full re-initialization
-          if (_backend != newBackend) {
+        // 백엔드가 변경되었다면 리부트스트랩
+        if (result != null) {
+          final newBackend = result['backend'] as PreferredBackend?;
+          if (newBackend != null && _backend != newBackend) {
             _backend = newBackend;
+            _saveSettings(); // 백엔드 설정 저장
+
+            // 완전 재초기화
             _msgs.clear();
             _initialising = true;
             BootstrapManager.reset();
             _redirectedOnError = false;
-            _bootstrap(); // Re-initialize with new backend
+            _bootstrap();
           }
-        });
-      }
+        }
+      });
     }
+  }
+
+  // ... (저장/로드 관련 헬퍼 메소드들 - 기존 유지)
+  String _defaultChatName() {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${now.year}${two(now.month)}${two(now.day)}_'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted || _disposed) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _saveChat() async {
+    if (_msgs.isEmpty) {
+      _showSnackBar('No messages to save.');
+      return;
+    }
+    if (_currentChatId == null || _currentChatName == null) {
+      await _saveChatAs();
+      return;
+    }
+    try {
+      final info = await _chatStorage.saveChat(
+        name: _currentChatName!,
+        existingId: _currentChatId,
+        messages: _msgs,
+      );
+      setState(() {
+        _currentChatId = info.id;
+        _currentChatName = info.name;
+      });
+      _showSnackBar('Chat saved.');
+    } catch (e) {
+      _showSnackBar('Failed to save chat: $e');
+    }
+  }
+
+  Future<void> _saveChatAs() async {
+    if (_msgs.isEmpty) {
+      _showSnackBar('No messages to save.');
+      return;
+    }
+    final name = await _promptForChatName();
+    if (name == null) return;
+
+    try {
+      final existing = await _chatStorage.findSaveByName(name);
+      if (existing != null) {
+        final overwrite = await _confirmOverwrite(name);
+        if (!overwrite) return;
+      }
+
+      final info = await _chatStorage.saveChat(
+        name: name,
+        existingId: existing?.id,
+        messages: _msgs,
+      );
+      setState(() {
+        _currentChatId = info.id;
+        _currentChatName = info.name;
+      });
+      _showSnackBar('Chat saved.');
+    } catch (e) {
+      _showSnackBar('Failed to save chat: $e');
+    }
+  }
+
+  Future<void> _loadChat() async {
+    try {
+      final saves = await _chatStorage.listSaves();
+      if (saves.isEmpty) {
+        _showSnackBar('No saved chats found.');
+        return;
+      }
+      final selected = await _showChatListDialog(saves);
+      if (selected == null) return;
+
+      final data = await _chatStorage.loadChat(selected.id);
+      if (data == null) {
+        _showSnackBar('Failed to load chat.');
+        return;
+      }
+
+      setState(() {
+        _msgs
+          ..clear()
+          ..addAll(data.messages);
+        _currentChatId = data.info.id;
+        _currentChatName = data.info.name;
+        if (_showMessages) {
+          _scrollToBottom(force: true);
+        }
+      });
+    } catch (e) {
+      _showSnackBar('Failed to load chat: $e');
+    }
+  }
+
+  Future<String?> _promptForChatName() async {
+    final controller = TextEditingController(text: _defaultChatName());
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save chat as'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter a chat name',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              Navigator.of(context).pop(name.isEmpty ? _defaultChatName() : name);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    return result;
+  }
+
+  Future<bool> _confirmOverwrite(String name) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Overwrite existing chat?'),
+        content: Text('A chat named "$name" already exists. Overwrite it?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Overwrite'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<ChatSaveInfo?> _showChatListDialog(
+      List<ChatSaveInfo> saves,
+      ) async {
+    return showDialog<ChatSaveInfo>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Load chat'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: saves.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final item = saves[index];
+              final date = item.updatedAt.toLocal();
+              final subtitle =
+                  '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+                  '${date.day.toString().padLeft(2, '0')} '
+                  '${date.hour.toString().padLeft(2, '0')}:'
+                  '${date.minute.toString().padLeft(2, '0')}';
+              return ListTile(
+                title: Text(item.name),
+                subtitle: Text(subtitle),
+                onTap: () => Navigator.of(context).pop(item),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
   }
 }

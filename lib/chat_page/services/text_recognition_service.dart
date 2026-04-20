@@ -21,7 +21,7 @@ class TextRecognitionService {
     try {
       _textRecognizer = TextRecognizer(
         script: TextRecognitionScript
-            .latin, // You can change this based on your needs
+            .korean, // You can change this based on your needs
       );
       _initialized = true;
       debugPrint('[TextRecognitionService] Initialized successfully');

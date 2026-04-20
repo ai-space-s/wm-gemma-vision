@@ -3,16 +3,19 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/message_models.dart';
 import '../widgets/prompt_bar.dart';
-import '../config/system_prompts.dart';
+import 'function_gemma_service.dart';
 import 'gemma_service.dart';
 import 'speech_service.dart';
 import 'streaming_tts_service.dart';
 import 'text_recognition_service.dart';
+import 'lunch_service.dart';
+import 'weather_service.dart';
+import '../../app_settings.dart';
 
-/// Core chat operations with vision AI - handles camera, OCR, streaming responses, and TTS
 class ChatHelpers {
   final GemmaService _service;
   final StreamingTtsService _streamingTts;
@@ -21,9 +24,16 @@ class ChatHelpers {
   final VoidCallback _onStateChanged;
   final Function(String) _showSnackBar;
 
+  // [추가] 갤러리 이미지 선택을 위한 ImagePicker 인스턴스
+  final ImagePicker _picker = ImagePicker();
+
+  final LunchService _lunchService = LunchService.instance;
+
   String _systemCtx;
   bool _resetting = false;
   bool _isGenerating = false;
+
+  bool _isFirstMessage = true;
 
   ChatHelpers({
     required GemmaService service,
@@ -33,14 +43,13 @@ class ChatHelpers {
     required VoidCallback onStateChanged,
     required Function(String) showSnackBar,
     required String systemContext,
-  }) : _service = service,
-       _streamingTts = streamingTts,
-       _speechService = speechService,
-       _textRecognition = textRecognition,
-       _onStateChanged = onStateChanged,
-       _showSnackBar = showSnackBar,
-       _systemCtx = systemContext {
-    // Listen for TTS state changes to update UI
+  })  : _service = service,
+        _streamingTts = streamingTts,
+        _speechService = speechService,
+        _textRecognition = textRecognition,
+        _onStateChanged = onStateChanged,
+        _showSnackBar = showSnackBar,
+        _systemCtx = systemContext {
     _streamingTts.isSpeaking.addListener(_onStateChanged);
   }
 
@@ -48,7 +57,6 @@ class ChatHelpers {
     _streamingTts.isSpeaking.removeListener(_onStateChanged);
   }
 
-  // State getters for UI
   bool get resetting => _resetting;
   bool get isGenerating => _isGenerating;
   bool get isSpeaking => _streamingTts.isSpeaking.value;
@@ -56,100 +64,65 @@ class ChatHelpers {
 
   void updateSystemContext(String newContext) => _systemCtx = newContext;
 
-  /// Clean error messages for TTS (remove technical prefixes)
   Future<void> _announceError(String error) async {
     try {
-      final cleanError = error
-          .replaceAll('Exception:', '')
-          .replaceAll('Error:', '')
-          .replaceAll('_', ' ')
-          .trim();
+      final cleanError = error.replaceAll('Exception:', '').trim();
       await _speechService.speak('Error: $cleanError');
-    } catch (e) {
-      // Silent fallback if TTS fails
-    }
+    } catch (e) {}
   }
 
-  /// Announce state changes for blind users
   Future<void> _announceStateChange(String message) async {
     try {
       await _speechService.speak(message);
-    } catch (e) {
-      // Silent fallback
-    }
+    } catch (e) {}
   }
 
-  /// Reset chat session and clean up all state
   Future<void> newChat(
-    List<ChatMessage> messages,
-    GlobalKey<PromptBarState>? promptBarKey,
-  ) async {
+      List<ChatMessage> messages,
+      GlobalKey<PromptBarState>? promptBarKey,
+      ) async {
     if (_resetting) return;
-
     try {
       _streamingTts.reset();
       _resetting = true;
       _onStateChanged();
-
       await _announceStateChange('Starting new chat');
 
       messages.clear();
       promptBarKey?.currentState?.clear();
-
       await _service.resetChatSession();
+      _isFirstMessage = true;
 
       _resetting = false;
       _onStateChanged();
-
       await _announceStateChange('New chat ready');
     } catch (e) {
       _resetting = false;
       _onStateChanged();
-
-      final errorMsg = 'Failed to start new chat: $e';
-      _showSnackBar(errorMsg);
-      await _announceError(errorMsg);
+      _showSnackBar('Failed to start new chat: $e');
     }
   }
 
-  /// Toggle message visibility with accessibility announcements
   Future<void> showMessages(List<ChatMessage> messages, bool show) async {
-    try {
-      if (show) {
-        await _announceStateChange('Showing ${messages.length} messages');
-      } else {
-        await _announceStateChange('Hiding messages');
-      }
-    } catch (e) {
-      await _announceError('Failed to toggle message visibility');
+    if (show) {
+      await _announceStateChange('Showing ${messages.length} messages');
+    } else {
+      await _announceStateChange('Hiding messages');
     }
   }
 
-  /// Optimized camera capture - initialize only when needed, dispose immediately
+  // [수정] Web 호환성 체크 추가
   Future<File?> _captureWithEfficientCamera() async {
-    if (kIsWeb) {
-      throw Exception('Camera not supported on web');
-    }
-
+    if (kIsWeb) throw Exception('Camera is not supported on Web.');
     CameraController? controller;
     try {
       final cameras = await availableCameras();
-      if (cameras.isEmpty) {
-        throw Exception('No cameras available');
-      }
-
-      // Prefer back camera for environment scanning
+      if (cameras.isEmpty) throw Exception('No cameras available');
       final description = cameras.firstWhere(
-        (cam) => cam.lensDirection == CameraLensDirection.back,
+            (cam) => cam.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-
-      controller = CameraController(
-        description,
-        ResolutionPreset.high,
-        enableAudio: false, // No audio needed for vision AI
-      );
-
+      controller = CameraController(description, ResolutionPreset.high, enableAudio: false);
       await controller.initialize();
       final image = await controller.takePicture();
       return File(image.path);
@@ -157,30 +130,62 @@ class ChatHelpers {
       await _announceError('Camera error: $e');
       rethrow;
     } finally {
-      // Always dispose controller to free camera resource
       await controller?.dispose();
     }
   }
 
-  /// Capture image + process text prompt with OCR integration and streaming response
-  Future<void> captureAndSend(
-    String prompt,
-    List<ChatMessage> messages, {
-    bool isQuickAction = false,
-  }) async {
+  // [신규] 카메라 캡처 후 전송 (기존 captureAndSend 대체)
+  Future<void> captureWithCamera(
+      String prompt,
+      List<ChatMessage> messages, {
+        bool isQuickAction = false,
+      }) async {
     try {
       final imageFile = await _captureWithEfficientCamera();
+      await _processAndSendImage(prompt, messages, imageFile, isQuickAction: isQuickAction);
+    } catch (e) {
+      if (kIsWeb) {
+        _showSnackBar('Camera not supported on Web');
+      } else {
+        // 이미 _captureWithEfficientCamera 내부에서 에러를 읽어줬을 수 있음
+        // 추가 처리가 필요하다면 여기에 작성
+      }
+    }
+  }
 
-      // Add user message immediately for responsive UI
-      final userMsg = ChatMessage.withImageFile(
-        prompt,
-        isUser: true,
-        imageFile: imageFile,
-      );
-      messages.add(userMsg);
+  // [신규] 갤러리에서 이미지 선택 후 전송
+  Future<void> pickFromGallery(
+      String prompt,
+      List<ChatMessage> messages,
+      ) async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+      if (pickedFile == null) return; // 사용자가 취소함
+
+      // Web에서는 File 객체가 정상 동작하지 않을 수 있으나,
+      // GemmaService에서 Web일 경우 이미지를 무시하거나 URL 처리를 하므로
+      // 여기서는 모바일 기준으로 File 객체를 생성하여 넘김.
+      final imageFile = File(pickedFile.path);
+
+      await _processAndSendImage(prompt, messages, imageFile);
+    } catch (e) {
+      await _announceError('Gallery error: $e');
+      _showSnackBar('Failed to pick image: $e');
+    }
+  }
+
+  // [신규] 이미지 처리 및 전송 공통 로직 (기존 captureAndSend의 핵심 로직 이동)
+  Future<void> _processAndSendImage(
+      String prompt,
+      List<ChatMessage> messages,
+      File? imageFile, {
+        bool isQuickAction = false,
+      }) async {
+    try {
+      // 이미지 메시지 UI 추가
+      messages.add(ChatMessage.withImageFile(prompt, isUser: true, imageFile: imageFile));
       _onStateChanged();
 
-      // Add streaming AI placeholder
       final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
       messages.add(aiMsg);
       _onStateChanged();
@@ -189,53 +194,43 @@ class ChatHelpers {
       _isGenerating = true;
       _onStateChanged();
 
-      // Skip message type announcement for quick actions (reduce verbosity)
-      if (!isQuickAction) {
-        await _speechService.announceMessageType(true);
-      }
+      if (!isQuickAction) await _speechService.announceMessageType(true);
       await _streamingTts.startLoading();
 
-      // Run OCR on captured image in parallel with AI processing
       String extractedText = '';
       try {
-        extractedText = await _textRecognition.extractTextFromImage(imageFile!);
-        // Uncomment for OCR feedback: _showSnackBar('Text detected in image');
-      } catch (e) {
-        await _announceError('Text recognition failed: $e');
-      }
+        // Web에서는 File 기반 OCR이 지원되지 않을 수 있으므로 체크
+        if (imageFile != null && !kIsWeb) {
+          extractedText = await _textRecognition.extractTextFromImage(imageFile);
+        }
+      } catch (e) {}
 
-      // Enhance prompt with OCR results if text was found
-      String enhancedPrompt = prompt;
+      String enhancedPrompt = prompt.trim();
       if (extractedText.isNotEmpty) {
-        enhancedPrompt = '''$prompt
-
-[TEXT DETECTED IN IMAGE: $extractedText]''';
+        enhancedPrompt = '''$prompt\n\n[TEXT DETECTED IN IMAGE: $extractedText]''';
       }
 
-      // Stream AI response with optimized UI updates
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
+      String fullPrompt = _isFirstMessage ? '$_systemCtx\n\n$enhancedPrompt' : enhancedPrompt;
+      if (_isFirstMessage) _isFirstMessage = false;
 
       await _service.sendWithStreaming(
-        text: '$_systemCtx\nUser: $enhancedPrompt',
+        text: fullPrompt,
         image: imageFile,
         onToken: (tok) {
           responseBuffer.write(tok);
           tokenCounter++;
-
           final currentText = responseBuffer.toString();
-          _streamingTts.addText(tok, currentText); // Real-time TTS
-
-          // Throttle UI updates: only update every 3 tokens for performance
+          _streamingTts.addText(tok, currentText);
           if (tokenCounter % 3 == 0) {
             aiMsg.text = currentText;
             _onStateChanged();
           }
         },
         onComplete: (stats) async {
-          final finalText = responseBuffer.toString();
           aiMsg
-            ..text = finalText
+            ..text = responseBuffer.toString().trim()
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
@@ -245,132 +240,199 @@ class ChatHelpers {
       );
     } catch (e) {
       await _streamingTts.stopLoading();
-      final errorMsg = 'Failed to process image and text: $e';
-
-      // Add or update error message in chat
-      if (messages.isEmpty || !messages.last.isUser) {
-        messages.add(ChatMessage.text('Error: $e', isUser: false));
-      } else {
-        final lastAiIndex = messages.lastIndexWhere((m) => !m.isUser);
-        if (lastAiIndex != -1) {
-          messages[lastAiIndex] = ChatMessage.text('Error: $e', isUser: false);
-        } else {
-          messages.add(ChatMessage.text('Error: $e', isUser: false));
-        }
-      }
       _isGenerating = false;
       _onStateChanged();
-      await _announceError(errorMsg);
+      if (messages.isNotEmpty) messages.last.text = 'Error: $e';
+      await _announceError('Failed to process image: $e');
     }
   }
 
-  /// Send text-only message with streaming response and optimized performance
-  Future<void> sendTextOnly(String prompt, List<ChatMessage> messages) async {
+  /// Send text-only message with Universal Function Calling (Main Model or FunctionGemma)
+  Future<void> sendTextOnly(
+      String prompt,
+      List<ChatMessage> messages, {
+        bool isInternalCall = false,
+        bool isFunctionResult = false,
+      }) async {
     try {
-      // Immediate UI feedback
-      messages.add(ChatMessage.text(prompt, isUser: true));
-      _onStateChanged();
+      // 1. 사용자 메시지 UI 추가
+      if (!isInternalCall) {
+        messages.add(ChatMessage.text(prompt, isUser: true));
+        _onStateChanged();
 
-      final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
-      messages.add(aiMsg);
-      _onStateChanged();
+        final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
+        messages.add(aiMsg);
+        _onStateChanged();
 
-      await _speechService.playWooshSound();
-      _isGenerating = true;
-      _onStateChanged();
-      await _speechService.announceMessageType(false);
+        await _speechService.playWooshSound();
+        _isGenerating = true;
+        _onStateChanged();
+        await _speechService.announceMessageType(false);
+      }
 
+      // 2. Function Calling Loop
+      // 설정이 꺼져 있어도 Main Model을 통해 함수 호출을 시도하도록 변경됨
+      if (!isInternalCall) {
+        messages.last.text = "Analyzing request...";
+        _onStateChanged();
+
+        // Service decides internally whether to use FunctionGemma or Main Model
+        final functionCall = await FunctionGemmaService.instance.predict(prompt);
+
+        if (functionCall != null) {
+          print("🚀 Function Call Detected: ${functionCall.name}");
+
+          if (messages.isNotEmpty) {
+            messages.last.text = "Running ${functionCall.name}...";
+            _onStateChanged();
+          }
+
+          // Generalized Execution Handler
+          await _handleFunctionExecution(functionCall, prompt, messages);
+          return; // 재귀 호출로 넘어가므로 여기서 종료
+        }
+
+        // 함수 호출이 없으면 텍스트 초기화 (스트리밍 준비)
+        if (messages.isNotEmpty) {
+          messages.last.text = "";
+          _onStateChanged();
+        }
+      }
+
+      // 3. Main Model Streaming (General Chat)
       await _streamingTts.startLoading();
 
-      // High-performance response handling with StringBuffer
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
 
-      final fullPrompt = '$_systemCtx\nUser: $prompt';
+      String fullPrompt;
+      final trimmedPrompt = prompt.trim();
+
+      if (isInternalCall) {
+        fullPrompt = '$_systemCtx\n\n$trimmedPrompt';
+      } else {
+        if (_isFirstMessage) {
+          fullPrompt = '$_systemCtx\n\n$trimmedPrompt';
+          _isFirstMessage = false;
+        } else {
+          fullPrompt = trimmedPrompt;
+        }
+      }
+
+      final currentAiMsg = messages.last;
+      if (isFunctionResult) {
+        currentAiMsg.isFunctionResult = true;
+      }
 
       await _service.sendWithStreaming(
         text: fullPrompt,
         onToken: (tok) {
-          responseBuffer.write(tok); // Efficient string building
+          responseBuffer.write(tok);
           tokenCounter++;
-
           final currentText = responseBuffer.toString();
-          _streamingTts.addText(tok, currentText); // Stream to TTS
 
-          // Performance optimization: throttle UI updates to every 3 tokens
+          _streamingTts.addText(tok, currentText);
           if (tokenCounter % 3 == 0) {
-            aiMsg.text = currentText;
+            currentAiMsg.text = currentText;
             _onStateChanged();
           }
         },
         onComplete: (stats) async {
-          final finalText = responseBuffer.toString();
-
-          aiMsg
+          final finalText = responseBuffer.toString().trim();
+          currentAiMsg
             ..text = finalText
             ..isStreaming = false
             ..stats = stats;
+
           _isGenerating = false;
           _onStateChanged();
-
           await _streamingTts.onMessageComplete();
         },
       );
     } catch (e) {
       await _streamingTts.stopLoading();
-      final errorMsg = 'Failed to send text message: $e';
-      messages.add(ChatMessage.text('Error: $e', isUser: false));
+      if (messages.isNotEmpty) messages.last.text = 'Error: $e';
       _isGenerating = false;
       _onStateChanged();
-      await _announceError(errorMsg);
+      await _announceError('Error: $e');
     }
   }
 
-  /* Quick action shortcuts for common blind user navigation tasks */
+  // Generalized Function Executor
+  Future<void> _handleFunctionExecution(
+      FunctionCall call,
+      String originalPrompt,
+      List<ChatMessage> messages,
+      ) async {
+    String resultJson = "";
 
-  /// Quick action: Analyze room layout and furniture placement
+    try {
+      if (call.name == 'get_lunch_menu') {
+        final date = call.args['date'] ?? 'today';
+        resultJson = await _lunchService.getLunchMenu(date);
+      } else if (call.name == 'get_weather') {
+        double lat = 0.0;
+        double lon = 0.0;
+
+        if (call.args['latitude'] != null)
+          lat = double.tryParse(call.args['latitude'].toString()) ?? 0.0;
+        if (call.args['longitude'] != null)
+          lon = double.tryParse(call.args['longitude'].toString()) ?? 0.0;
+
+        resultJson = await WeatherService.instance.getWeather(latitude: lat, longitude: lon);
+      } else {
+        resultJson = '{"status": "error", "message": "Unknown function: ${call.name}"}';
+      }
+    } catch (e) {
+      resultJson = '{"status": "error", "message": "Execution failed: $e"}';
+    }
+
+    final nextPrompt = '''
+User query: $originalPrompt
+Tool Execution: ${call.name}
+Arguments: ${call.args}
+Result: $resultJson
+
+Instructions:
+1. Using the result above, answer the user's question naturally in Korean.
+2. If the result indicates an error, politely inform the user.
+''';
+
+    // Recursive call to generate natural language response
+    await sendTextOnly(nextPrompt, messages, isInternalCall: true, isFunctionResult: true);
+  }
+
+  // Quick action shortcuts
   Future<void> quickAction1(List<ChatMessage> messages) async {
     await _announceStateChange('Describing room');
-    await captureAndSend(
-      SystemPrompts.describeRoom,
-      messages,
-      isQuickAction: true,
-    );
+    // [수정] captureWithCamera 사용
+    await captureWithCamera(AppSettings.instance.promptDescribeRoom, messages, isQuickAction: true);
   }
 
-  /// Quick action: General scene description
   Future<void> quickAction2(List<ChatMessage> messages) async {
     await _announceStateChange('Analyzing what I can see');
-    await captureAndSend(
-      SystemPrompts.tellMeWhatYouSee,
-      messages,
-      isQuickAction: true,
-    );
+    // [수정] captureWithCamera 사용
+    await captureWithCamera(AppSettings.instance.promptWhatYouSee, messages, isQuickAction: true);
   }
 
-  /// Quick action: Object identification
   Future<void> quickAction3(List<ChatMessage> messages) async {
     await _announceStateChange('What is this?');
-    await captureAndSend(
-      SystemPrompts.whatIsThis,
-      messages,
-      isQuickAction: true,
-    );
+    // [수정] captureWithCamera 사용
+    await captureWithCamera(AppSettings.instance.promptWhatIsThis, messages, isQuickAction: true);
   }
 
-  /// Quick action: OCR text reading
   Future<void> quickAction4(List<ChatMessage> messages) async {
     await _announceStateChange('Reading text');
-    await captureAndSend(SystemPrompts.readText, messages, isQuickAction: true);
+    // [수정] captureWithCamera 사용
+    await captureWithCamera(AppSettings.instance.promptReadText, messages, isQuickAction: true);
   }
 
-  /// Clear all messages with accessibility feedback
   Future<void> clearMessages(List<ChatMessage> messages) async {
     try {
-      final messageCount = messages.length;
+      final count = messages.length;
       messages.clear();
       _onStateChanged();
-      await _announceStateChange('Cleared $messageCount messages');
+      await _announceStateChange('Cleared $count messages');
     } catch (e) {
       await _announceError('Failed to clear messages: $e');
     }

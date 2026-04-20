@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'semantic_button_registry.dart';
+import '../../app_settings.dart';
 
 /// Cross-platform accessible button with VoiceOver/TalkBack integration
 /// Handles iOS VoiceOver double-tap vs Android TalkBack activation patterns
@@ -14,13 +15,13 @@ class SemanticMaterialButton extends StatefulWidget {
   final String? hint;
 
   const SemanticMaterialButton({
-    Key? key,
+    super.key,
     required this.label,
     required this.child,
     this.onPressed,
     this.disabled = false,
     this.hint,
-  }) : super(key: key);
+  });
 
   @override
   State<SemanticMaterialButton> createState() => _SemanticMaterialButtonState();
@@ -64,6 +65,7 @@ class _SemanticMaterialButtonState extends State<SemanticMaterialButton> {
   void _handlePressed() {
     debugPrint('BUTTON-PRESSED: ${widget.label}');
     if (!widget.disabled) {
+      AppSettings.instance.maybeHapticTap();
       widget.onPressed?.call();
     }
   }

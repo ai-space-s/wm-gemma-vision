@@ -35,6 +35,7 @@ class BootstrapManager {
     required Future<void> Function() onQuickAction3,
     required Future<void> Function() onQuickAction4,
     required VoidCallback onToggleVoice,
+    required VoidCallback onConnectionTest,
     required bool Function() isMounted,
     required bool Function() isDisposed,
     required void Function(VoidCallback) setState,
@@ -164,6 +165,7 @@ class BootstrapManager {
         onQuickAction3: onQuickAction3,
         onQuickAction4: onQuickAction4,
         onToggleVoice: onToggleVoice,
+        onConnectionTest: onConnectionTest,
       );
       debugPrint("[BootstrapManager] Keyboard handler initialized");
 

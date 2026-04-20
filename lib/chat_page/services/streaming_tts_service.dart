@@ -194,8 +194,9 @@ class StreamingTtsService {
 
       if (segment.isEmpty || segment == _previousSegment) continue;
       if (RegExp(r'^[.!?,;:]+$').hasMatch(segment) &&
-          _pendingSegments.isNotEmpty)
+          _pendingSegments.isNotEmpty) {
         continue;
+      }
 
       try {
         await _tts.speak(segment);
@@ -283,7 +284,7 @@ class StreamingTtsService {
       final words = text.split(' ');
       var buf = '';
       for (final w in words) {
-        if ((buf + ' ' + w).trim().length <= 25) {
+        if (('$buf $w').trim().length <= 25) {
           buf = [buf, w].where((s) => s.isNotEmpty).join(' ');
         } else {
           if (buf.isNotEmpty) out.add(buf);

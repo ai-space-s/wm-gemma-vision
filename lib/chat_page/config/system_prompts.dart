@@ -2,6 +2,10 @@
 
 /// System prompts and quick action commands for blind user navigation
 class SystemPrompts {
+  /// Default system context when none is provided
+  static const String defaultSystemContext =
+      'You are helping a blind user navigate and read text. Be FAST and USEFUL only, only write the absolute essential information. Answer immediately! 한국어로 대답해야 합니다.';
+
   /// Main system context optimized for blind users - emphasizes speed and essential info only
   static const String blindUserNavigation = '''
 You are helping a blind user navigate and read text. Be FAST and USEFUL only, only write the absolute essential information. Answer immediately!

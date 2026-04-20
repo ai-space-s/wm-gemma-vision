@@ -3,6 +3,7 @@
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
+import 'package:flutter/foundation.dart'; // for kIsWeb
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -23,6 +24,12 @@ class DownloadManager {
 
   /// Setup isolate communication - DON'T call FlutterDownloader.initialize() (done in main())
   static Future<void> initialize() async {
+    // Fix: Isolates and IsolateNameServer are not supported on Web in the same way
+    if (kIsWeb) {
+      Logger.info('DownloadManager: Web platform detected, background isolate disabled');
+      return;
+    }
+
     // Remove any stale port mapping to avoid "already registered" errors
     IsolateNameServer.removePortNameMapping('downloader_send_port');
 
@@ -44,6 +51,8 @@ class DownloadManager {
   /// Callback function for background isolate (must be top-level or static)
   @pragma('vm:entry-point')
   static void downloadCallback(String id, int status, int progress) {
+    if (kIsWeb) return;
+
     final SendPort? send = IsolateNameServer.lookupPortByName(
       'downloader_send_port',
     );
@@ -76,12 +85,19 @@ class DownloadManager {
     required String fileName,
     String? accessToken,
   }) async {
+    // Fix: Web does not support flutter_downloader
+    if (kIsWeb) {
+      Logger.warning('Background downloads are not supported on Web.');
+      return null;
+    }
+
     try {
       // Use app-specific directory (no storage permission needed on Android 13+)
       final dir = await getApplicationDocumentsDirectory();
 
       // Handle Android permissions based on API level
-      if (Platform.isAndroid) {
+      // Fix: Platform check can crash on Web, ensure we are not on web first
+      if (!kIsWeb && Platform.isAndroid) {
         // Request notification permission for download progress notifications
         final notificationStatus = await Permission.notification.request();
         if (!notificationStatus.isGranted) {
@@ -130,6 +146,7 @@ class DownloadManager {
   }
 
   static Future<void> pauseDownload() async {
+    if (kIsWeb) return;
     if (_currentTaskId != null) {
       await FlutterDownloader.pause(taskId: _currentTaskId!);
       Logger.info('Download paused');
@@ -138,6 +155,8 @@ class DownloadManager {
 
   /// Resume paused download - flutter_downloader creates NEW task ID when resuming
   static Future<String?> resumeDownload() async {
+    if (kIsWeb) return null;
+
     if (_currentTaskId == null) {
       Logger.warning('No paused task to resume');
       return null;
@@ -161,6 +180,11 @@ class DownloadManager {
   }
 
   static Future<void> cancelDownload() async {
+    if (kIsWeb) {
+      _currentTaskId = null;
+      return;
+    }
+
     if (_currentTaskId != null) {
       await FlutterDownloader.cancel(taskId: _currentTaskId!);
       Logger.info('Download cancelled');
@@ -170,6 +194,11 @@ class DownloadManager {
 
   /// Nuclear option: cancel download AND delete all associated files completely
   static Future<void> cancelAndDeleteDownload() async {
+    if (kIsWeb) {
+      _currentTaskId = null;
+      return;
+    }
+
     if (_currentTaskId == null) {
       Logger.info('No current task to cancel');
       return;
@@ -179,7 +208,7 @@ class DownloadManager {
       // Get task details before cancelling to find file paths
       final tasks = await getAllTasks();
       final currentTask = tasks.firstWhere(
-        (task) => task.taskId == _currentTaskId,
+            (task) => task.taskId == _currentTaskId,
         orElse: () => DownloadTask(
           taskId: '',
           status: DownloadTaskStatus.undefined,
@@ -223,10 +252,13 @@ class DownloadManager {
 
   /// Delete specific download files including common partial file extensions
   static Future<void> _deleteDownloadFiles(
-    String savedDir,
-    String filename,
-  ) async {
+      String savedDir,
+      String filename,
+      ) async {
     try {
+      // On Web, File API behaves differently or throws.
+      if (kIsWeb) return;
+
       if (savedDir.isEmpty || filename.isEmpty) return;
 
       final filePath = '$savedDir/$filename';
@@ -259,6 +291,9 @@ class DownloadManager {
   /// Nuclear cleanup: find and delete ANY model files in app directory
   static Future<void> _cleanupModelFiles() async {
     try {
+      // On Web, directory listing is not supported in the same way
+      if (kIsWeb) return;
+
       final dir = await getApplicationDocumentsDirectory();
       final modelExtensions = ['.gguf', '.bin', '.safetensors', '.pt', '.pth'];
 
@@ -270,8 +305,8 @@ class DownloadManager {
           // Identify model files by extension or filename patterns
           final isModelFile =
               modelExtensions.any((ext) => filename.endsWith(ext)) ||
-              filename.contains('gemma') ||
-              filename.contains('model');
+                  filename.contains('gemma') ||
+                  filename.contains('model');
 
           if (isModelFile) {
             await file.delete();
@@ -286,14 +321,16 @@ class DownloadManager {
 
   /// Clean up old failed/canceled downloads to free space and remove clutter
   static Future<void> cleanupFailedDownloads() async {
+    if (kIsWeb) return;
+
     try {
       final tasks = await getAllTasks();
       final failedTasks = tasks
           .where(
             (task) =>
-                task.status == DownloadTaskStatus.failed ||
-                task.status == DownloadTaskStatus.canceled,
-          )
+        task.status == DownloadTaskStatus.failed ||
+            task.status == DownloadTaskStatus.canceled,
+      )
           .toList();
 
       for (final task in failedTasks) {
@@ -316,6 +353,7 @@ class DownloadManager {
 
   /// Get all download tasks from flutter_downloader database
   static Future<List<DownloadTask>> getAllTasks() async {
+    if (kIsWeb) return [];
     return await FlutterDownloader.loadTasks() ?? [];
   }
 }

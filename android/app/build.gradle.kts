@@ -8,8 +8,8 @@ plugins {
 android {
     namespace = "com.tommasogiovannini.gemma"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
-    //ndkVersion = flutter.ndkVersion
+    //ndkVersion = "28.2.13676358"
+    ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -31,6 +31,10 @@ android {
         versionName = flutter.versionName
     }
 
+    aaptOptions {
+        noCompress += "task"
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -48,4 +52,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 }

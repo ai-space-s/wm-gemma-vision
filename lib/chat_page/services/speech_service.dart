@@ -3,10 +3,8 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../widgets/prompt_bar.dart';
 import 'sound_manager.dart';
 
@@ -16,14 +14,13 @@ class SpeechService {
   final FlutterTts _tts; // For accessibility announcements
   final VoidCallback _onStateChanged;
   final GlobalKey<PromptBarState> _promptBarKey;
-  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Dynamic callback to check if AI is generating (prevents speech conflicts)
   bool Function()? _isGeneratingCallback;
   bool _speechEnabled = false;
   bool _listening = false;
   bool _sendButtonPressed =
-      false; // Track if user sent message during dictation
+  false; // Track if user sent message during dictation
   bool _isStoppingDictation = false; // Prevent race conditions
 
   SpeechService({
@@ -32,8 +29,8 @@ class SpeechService {
     required GlobalKey<PromptBarState> promptBarKey,
     required bool Function() isGenerating,
   }) : _tts = tts,
-       _onStateChanged = onStateChanged,
-       _promptBarKey = promptBarKey {
+        _onStateChanged = onStateChanged,
+        _promptBarKey = promptBarKey {
     updateIsGeneratingCallback(isGenerating);
   }
 
@@ -84,11 +81,12 @@ class SpeechService {
   /// Use system accessibility announcements for brief notifications
   void _announce(String message) {
     if (message.isEmpty) return;
-    debugPrint('supported: ${SemanticsService.isAnnounceSupported()}');
+
+    // Fix: Removed undefined method SemanticsService.isAnnounceSupported()
+    // On Android, SemanticsService.announce interacts with TalkBack.
+    // On other platforms (or if fallback is preferred), use TTS.
     if (Platform.isAndroid) {
-      SemanticsService.isAnnounceSupported()
-          ? SemanticsService.announce(message, ui.TextDirection.ltr)
-          : _tts.speak(message);
+      SemanticsService.announce(message, ui.TextDirection.ltr);
     } else {
       _tts.speak(message);
     }
@@ -174,22 +172,12 @@ class SpeechService {
 
   /// Play start sound with fallback to system sound + haptic
   Future<void> _playDictationStartSound() async {
-    try {
-      await _audioPlayer.play(AssetSource('dictation_start.mp3'));
-    } catch (e) {
-      debugPrint('Error playing dictation start sound: $e');
-      SystemSound.play(SystemSoundType.click); // Fallback
-    }
+    await SoundManager.instance.playDictationStart();
   }
 
   /// Play stop sound with fallback to system sound + haptic
   Future<void> _playDictationStopSound() async {
-    try {
-      await _audioPlayer.play(AssetSource('dictation_stop.mp3'));
-    } catch (e) {
-      debugPrint('Error playing dictation stop sound: $e');
-      SystemSound.play(SystemSoundType.click); // Fallback
-    }
+    await SoundManager.instance.playDictationStop();
   }
 
   /* Cleanup and misc */
@@ -201,6 +189,5 @@ class SpeechService {
   void dispose() {
     _speech.stop();
     _speech.cancel();
-    _audioPlayer.dispose();
   }
 }

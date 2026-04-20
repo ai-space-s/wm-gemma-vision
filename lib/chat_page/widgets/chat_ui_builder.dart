@@ -1,33 +1,94 @@
 // lib/chat_page/widgets/chat_ui_builder.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../app_settings.dart';
 import '../models/message_models.dart';
 import 'chat_bubble.dart';
 import 'prompt_bar.dart';
 import 'semantic_material_button.dart';
 
-/// Static UI builder for chat interface components with accessibility integration
+enum _ChatMenuAction { save, saveAs, load }
+
 class ChatUIBuilder {
-  /// Clean modern app bar with settings button and proper system overlay
   static PreferredSizeWidget buildCleanAppBar({
     required VoidCallback onNewChat,
     required VoidCallback onToggleSettings,
     required bool isResetting,
+    VoidCallback? onSaveChat,
+    VoidCallback? onSaveChatAs,
+    VoidCallback? onLoadChat,
   }) {
+    final highContrast = AppSettings.instance.highContrastEnabled;
+    final menuColor = highContrast ? Colors.white : Colors.blue.shade700;
+    final bgColor = highContrast ? Colors.black : Colors.white;
+    final textColor = highContrast ? Colors.white : Colors.black87;
+
     return AppBar(
       elevation: 0,
-      backgroundColor: Colors.white,
-      systemOverlayStyle: SystemUiOverlayStyle.dark, // Dark status bar content
-      title: const Text(
+      backgroundColor: bgColor,
+      systemOverlayStyle: highContrast
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
+      title: Text(
         'Gemma Vision',
         style: TextStyle(
-          color: Colors.black87,
+          color: textColor,
           fontSize: 20,
           fontWeight: FontWeight.w600,
         ),
       ),
+      iconTheme: IconThemeData(color: textColor),
       actions: [
-        // Settings button with accessibility support
+        if (onSaveChat != null && onSaveChatAs != null && onLoadChat != null)
+          PopupMenuButton<_ChatMenuAction>(
+            tooltip: 'Chat actions',
+            color: highContrast ? Colors.grey.shade900 : Colors.white,
+            onSelected: (action) {
+              switch (action) {
+                case _ChatMenuAction.save:
+                  onSaveChat();
+                  break;
+                case _ChatMenuAction.saveAs:
+                  onSaveChatAs();
+                  break;
+                case _ChatMenuAction.load:
+                  onLoadChat();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: _ChatMenuAction.save,
+                child: Text('Save chat', style: TextStyle(color: textColor)),
+              ),
+              PopupMenuItem(
+                value: _ChatMenuAction.saveAs,
+                child:
+                Text('Save chat as...', style: TextStyle(color: textColor)),
+              ),
+              PopupMenuItem(
+                value: _ChatMenuAction.load,
+                child: Text('Load chat', style: TextStyle(color: textColor)),
+              ),
+            ],
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.save_rounded, size: 18, color: menuColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Chat',
+                    style: TextStyle(
+                      color: menuColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         SemanticMaterialButton(
           label: 'Settings',
           hint: 'Double-tap to open settings page',
@@ -37,12 +98,12 @@ class ChatUIBuilder {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.tune_rounded, size: 18, color: Colors.blue.shade700),
+                Icon(Icons.tune_rounded, size: 18, color: menuColor),
                 const SizedBox(width: 4),
                 Text(
                   'Settings',
                   style: TextStyle(
-                    color: Colors.blue.shade700,
+                    color: menuColor,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -55,13 +116,13 @@ class ChatUIBuilder {
     );
   }
 
-  /// Toggle buttons for New Chat and Show/Hide Messages with proper focus traversal
   static Widget buildViewToggleButtons({
     required bool showMessages,
     required VoidCallback onToggleMessages,
     required VoidCallback onNewChat,
     required bool isResetting,
   }) {
+    final highContrast = AppSettings.instance.highContrastEnabled;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: FocusTraversalGroup(
@@ -76,10 +137,12 @@ class ChatUIBuilder {
                     ? 'New chat is currently processing'
                     : 'Double-tap to start a new chat conversation',
                 isActive: true,
-                activeColor: Colors.teal, // Green theme
-                inactiveColor: const Color(0xFFE8F5E8),
+                activeColor: highContrast ? Colors.white : Colors.teal,
+                inactiveColor:
+                highContrast ? Colors.black : const Color(0xFFE8F5E8),
                 onPressed: isResetting ? null : onNewChat,
                 disabled: isResetting,
+                highContrast: highContrast,
               ),
             ),
             const SizedBox(width: 12),
@@ -93,10 +156,12 @@ class ChatUIBuilder {
                     ? 'Double-tap to hide the conversation messages'
                     : 'Double-tap to show the conversation messages',
                 isActive: showMessages,
-                activeColor: Colors.blueAccent, // Blue theme
-                inactiveColor: const Color(0xFFE3F2FD),
+                activeColor: highContrast ? Colors.white : Colors.blueAccent,
+                inactiveColor:
+                highContrast ? Colors.black : const Color(0xFFE3F2FD),
                 onPressed: onToggleMessages,
                 disabled: false,
+                highContrast: highContrast,
               ),
             ),
           ],
@@ -105,7 +170,6 @@ class ChatUIBuilder {
     );
   }
 
-  /// Reusable toggle button with state-based styling and accessibility
   static Widget _buildToggleButton({
     required IconData icon,
     required String label,
@@ -114,25 +178,31 @@ class ChatUIBuilder {
     required Color inactiveColor,
     required VoidCallback? onPressed,
     required String hint,
+    required bool highContrast,
     bool disabled = false,
   }) {
     Color backgroundColor;
     Color textColor;
     Color iconColor;
 
-    // State-based color scheme
     if (disabled) {
-      backgroundColor = const Color(0xFFE0E7FF);
+      backgroundColor =
+      highContrast ? Colors.grey.shade900 : const Color(0xFFE0E7FF);
       textColor = const Color(0xFF9CA3AF);
       iconColor = const Color(0xFF9CA3AF);
     } else if (isActive) {
       backgroundColor = activeColor;
-      textColor = Colors.white;
-      iconColor = Colors.white;
+      textColor = highContrast ? Colors.black : Colors.white;
+      iconColor = highContrast ? Colors.black : Colors.white;
     } else {
       backgroundColor = inactiveColor;
       textColor = activeColor;
       iconColor = activeColor;
+      if (highContrast) {
+        backgroundColor = Colors.black;
+        textColor = Colors.white;
+        iconColor = Colors.white;
+      }
     }
 
     return SemanticMaterialButton(
@@ -145,13 +215,14 @@ class ChatUIBuilder {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: null, // Handled by semantic wrapper
+            onTap: null,
             borderRadius: BorderRadius.circular(16),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               decoration: BoxDecoration(
                 color: backgroundColor,
                 borderRadius: BorderRadius.circular(16),
+                border: highContrast ? Border.all(color: Colors.white) : null,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -175,11 +246,10 @@ class ChatUIBuilder {
     );
   }
 
-  /// Scrollable message list with accessibility labels and semantic child counting
   static Widget buildMessagesContainer(
-    List<ChatMessage> messages,
-    ScrollController scrollController,
-  ) {
+      List<ChatMessage> messages,
+      ScrollController scrollController,
+      ) {
     return Expanded(
       child: Semantics(
         label: 'Chat messages',
@@ -188,9 +258,8 @@ class ChatUIBuilder {
           controller: scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           itemCount: messages.length,
-          semanticChildCount: messages.length, // For screen readers
+          semanticChildCount: messages.length,
           itemBuilder: (_, i) => Semantics(
-            // Descriptive labels for each message
             label: messages[i].isUser
                 ? 'Your message ${i + 1} of ${messages.length}'
                 : 'AI response ${i + 1} of ${messages.length}',
@@ -201,10 +270,11 @@ class ChatUIBuilder {
     );
   }
 
-  /// Container for prompt bar that shows status during AI processing
+  // [수정] PromptBar API 변경 사항 반영 (onPromptWithCamera, onPromptWithGallery)
   static Widget buildPromptBarContainer({
     required GlobalKey<PromptBarState> promptBarKey,
-    required Future<void> Function(String) onPromptWithPhoto,
+    required Future<void> Function(String) onPromptWithCamera, // New
+    required Future<void> Function(String) onPromptWithGallery, // New
     required Future<void> Function(String) onPromptTextOnly,
     required bool disabled,
     required bool speechEnabled,
@@ -214,72 +284,87 @@ class ChatUIBuilder {
     required bool isSpeaking,
     Future<void> Function()? onStopTts,
   }) {
-    // Show status widget when AI is busy, otherwise show input bar
+    final highContrast = AppSettings.instance.highContrastEnabled;
     if (isGenerating || isSpeaking) {
       return _buildStatusWidget(
         isGenerating: isGenerating,
         isSpeaking: isSpeaking,
+        onStopTts: onStopTts,
       );
     }
 
     return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.all(16),
-      child: PromptBar(
-        key: promptBarKey,
-        onPromptWithPhoto: onPromptWithPhoto,
-        onPromptTextOnly: onPromptTextOnly,
-        disabled: disabled,
-        speechEnabled: speechEnabled,
-        listening: listening,
-        onToggleListening: onToggleListening,
-        onStopTts: onStopTts,
+      color: highContrast ? Colors.black : Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: PromptBar(
+            key: promptBarKey,
+            onPromptWithCamera: onPromptWithCamera, // New
+            onPromptWithGallery: onPromptWithGallery, // New
+            onPromptTextOnly: onPromptTextOnly,
+            disabled: disabled,
+            speechEnabled: speechEnabled,
+            listening: listening,
+            onToggleListening: onToggleListening,
+            onStopTts: onStopTts,
+          ),
+        ),
       ),
     );
   }
 
-  /// Visual status indicator during AI processing with accessibility announcements
   static Widget _buildStatusWidget({
     required bool isGenerating,
     required bool isSpeaking,
+    VoidCallback? onStopTts,
   }) {
-    return Container(
-      height: 80,
+    final highContrast = AppSettings.instance.highContrastEnabled;
+
+    final content = Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: highContrast
+            ? null
+            : LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [Colors.orange.shade400, Colors.deepOrange.shade500],
         ),
+        color: highContrast ? Colors.grey.shade900 : null,
+        border: highContrast
+            ? Border(top: BorderSide(color: Colors.white, width: 2))
+            : null,
       ),
-      child: Semantics(
-        label: isGenerating
-            ? (isSpeaking
-                  ? 'Generating response and speaking'
-                  : 'Generating response')
-            : 'Speaking response',
-        hint: 'Please wait while the AI processes your request',
-        child: Padding(
+      child: SafeArea(
+        top: false,
+        child: Container(
+          height: 80,
           padding: const EdgeInsets.only(bottom: 10),
+          alignment: Alignment.center,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
+              if (isGenerating)
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              else
+                const Icon(Icons.stop_circle_outlined,
+                    color: Colors.white, size: 28),
               const SizedBox(width: 16),
               Text(
                 isGenerating
                     ? (isSpeaking
-                          ? 'Generating and Speaking…'
-                          : 'Generating Response…')
-                    : 'Speaking…',
+                    ? 'Generating and Speaking…'
+                    : 'Generating Response…')
+                    : 'Speaking... (Tap to Stop)',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -291,36 +376,30 @@ class ChatUIBuilder {
         ),
       ),
     );
+
+    return GestureDetector(
+      onTap: () {
+        if (isSpeaking && onStopTts != null) {
+          onStopTts();
+          HapticFeedback.lightImpact();
+        }
+      },
+      child: Semantics(
+        label: isGenerating
+            ? 'Generating response. Please wait.'
+            : 'Speaking response. Double tap to stop speaking.',
+        button: true,
+        child: content,
+      ),
+    );
   }
 
-  /// Loading screen shown during app initialization
   static Widget buildLoadingScreen() {
     return const Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(color: Color(0xFF2196F3)),
         child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 60,
-                height: 60,
-                child: CircularProgressIndicator(
-                  strokeWidth: 4,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-              SizedBox(height: 24),
-              Text(
-                'Initializing Gemma…',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+          child: CircularProgressIndicator(color: Colors.white),
         ),
       ),
     );
