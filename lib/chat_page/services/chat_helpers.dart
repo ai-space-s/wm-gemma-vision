@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/message_models.dart';
 import '../widgets/prompt_bar.dart';
-import 'function_gemma_service.dart';
+import 'function_calling_service.dart';
 import 'gemma_service.dart';
 import 'speech_service.dart';
 import 'streaming_tts_service.dart';
@@ -43,13 +43,13 @@ class ChatHelpers {
     required VoidCallback onStateChanged,
     required Function(String) showSnackBar,
     required String systemContext,
-  })  : _service = service,
-        _streamingTts = streamingTts,
-        _speechService = speechService,
-        _textRecognition = textRecognition,
-        _onStateChanged = onStateChanged,
-        _showSnackBar = showSnackBar,
-        _systemCtx = systemContext {
+  }) : _service = service,
+       _streamingTts = streamingTts,
+       _speechService = speechService,
+       _textRecognition = textRecognition,
+       _onStateChanged = onStateChanged,
+       _showSnackBar = showSnackBar,
+       _systemCtx = systemContext {
     _streamingTts.isSpeaking.addListener(_onStateChanged);
   }
 
@@ -64,23 +64,63 @@ class ChatHelpers {
 
   void updateSystemContext(String newContext) => _systemCtx = newContext;
 
+  String _buildConversationPrompt(
+    List<ChatMessage> messages,
+    String currentPrompt, {
+    required bool includeSystem,
+    bool replaceLastUser = false,
+    int maxHistoryMessages = 10,
+  }) {
+    final history = <ChatMessage>[...messages];
+    while (history.isNotEmpty &&
+        !history.last.isUser &&
+        history.last.isStreaming &&
+        history.last.text.trim().isEmpty) {
+      history.removeLast();
+    }
+    if (replaceLastUser && history.isNotEmpty && history.last.isUser) {
+      history.removeLast();
+    }
+
+    final selected = history.length > maxHistoryMessages
+        ? history.sublist(history.length - maxHistoryMessages)
+        : history;
+    final buffer = StringBuffer();
+    if (includeSystem) {
+      buffer.writeln('System: $_systemCtx');
+      buffer.writeln();
+    }
+    for (final message in selected) {
+      final text = message.text.trim();
+      if (text.isEmpty) continue;
+      buffer.writeln('${message.isUser ? 'User' : 'Assistant'}: $text');
+    }
+    buffer.writeln('User: ${currentPrompt.trim()}');
+    buffer.write('Assistant:');
+    return buffer.toString();
+  }
+
   Future<void> _announceError(String error) async {
     try {
       final cleanError = error.replaceAll('Exception:', '').trim();
       await _speechService.speak('Error: $cleanError');
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('Failed to announce error: $e');
+    }
   }
 
   Future<void> _announceStateChange(String message) async {
     try {
       await _speechService.speak(message);
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('Failed to announce state change: $e');
+    }
   }
 
   Future<void> newChat(
-      List<ChatMessage> messages,
-      GlobalKey<PromptBarState>? promptBarKey,
-      ) async {
+    List<ChatMessage> messages,
+    GlobalKey<PromptBarState>? promptBarKey,
+  ) async {
     if (_resetting) return;
     try {
       _streamingTts.reset();
@@ -119,10 +159,14 @@ class ChatHelpers {
       final cameras = await availableCameras();
       if (cameras.isEmpty) throw Exception('No cameras available');
       final description = cameras.firstWhere(
-            (cam) => cam.lensDirection == CameraLensDirection.back,
+        (cam) => cam.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      controller = CameraController(description, ResolutionPreset.high, enableAudio: false);
+      controller = CameraController(
+        description,
+        ResolutionPreset.high,
+        enableAudio: false,
+      );
       await controller.initialize();
       final image = await controller.takePicture();
       return File(image.path);
@@ -136,13 +180,18 @@ class ChatHelpers {
 
   // [신규] 카메라 캡처 후 전송 (기존 captureAndSend 대체)
   Future<void> captureWithCamera(
-      String prompt,
-      List<ChatMessage> messages, {
-        bool isQuickAction = false,
-      }) async {
+    String prompt,
+    List<ChatMessage> messages, {
+    bool isQuickAction = false,
+  }) async {
     try {
       final imageFile = await _captureWithEfficientCamera();
-      await _processAndSendImage(prompt, messages, imageFile, isQuickAction: isQuickAction);
+      await _processAndSendImage(
+        prompt,
+        messages,
+        imageFile,
+        isQuickAction: isQuickAction,
+      );
     } catch (e) {
       if (kIsWeb) {
         _showSnackBar('Camera not supported on Web');
@@ -155,11 +204,13 @@ class ChatHelpers {
 
   // [신규] 갤러리에서 이미지 선택 후 전송
   Future<void> pickFromGallery(
-      String prompt,
-      List<ChatMessage> messages,
-      ) async {
+    String prompt,
+    List<ChatMessage> messages,
+  ) async {
     try {
-      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
       if (pickedFile == null) return; // 사용자가 취소함
 
       // Web에서는 File 객체가 정상 동작하지 않을 수 있으나,
@@ -176,14 +227,16 @@ class ChatHelpers {
 
   // [신규] 이미지 처리 및 전송 공통 로직 (기존 captureAndSend의 핵심 로직 이동)
   Future<void> _processAndSendImage(
-      String prompt,
-      List<ChatMessage> messages,
-      File? imageFile, {
-        bool isQuickAction = false,
-      }) async {
+    String prompt,
+    List<ChatMessage> messages,
+    File? imageFile, {
+    bool isQuickAction = false,
+  }) async {
     try {
       // 이미지 메시지 UI 추가
-      messages.add(ChatMessage.withImageFile(prompt, isUser: true, imageFile: imageFile));
+      messages.add(
+        ChatMessage.withImageFile(prompt, isUser: true, imageFile: imageFile),
+      );
       _onStateChanged();
 
       final aiMsg = ChatMessage.text('', isUser: false, isStreaming: true);
@@ -201,18 +254,31 @@ class ChatHelpers {
       try {
         // Web에서는 File 기반 OCR이 지원되지 않을 수 있으므로 체크
         if (imageFile != null && !kIsWeb) {
-          extractedText = await _textRecognition.extractTextFromImage(imageFile);
+          extractedText = await _textRecognition.extractTextFromImage(
+            imageFile,
+          );
         }
-      } catch (e) {}
+      } catch (e) {
+        debugPrint('OCR extraction failed: $e');
+      }
 
       String enhancedPrompt = prompt.trim();
       if (extractedText.isNotEmpty) {
-        enhancedPrompt = '''$prompt\n\n[TEXT DETECTED IN IMAGE: $extractedText]''';
+        enhancedPrompt =
+            '''$prompt\n\n[OCR text detected in the image]\n$extractedText\n\nUse the image itself if the Gemma 4 vision runtime is available. If only OCR is available, clearly limit the answer to the detected text.''';
+      } else if (imageFile != null) {
+        enhancedPrompt =
+            '''$prompt\n\n[Image attached]\nUse the image itself if the Gemma 4 vision runtime is available. If the runtime cannot inspect images, say that image understanding is not available instead of guessing.''';
       }
 
       final responseBuffer = StringBuffer();
       int tokenCounter = 0;
-      String fullPrompt = _isFirstMessage ? '$_systemCtx\n\n$enhancedPrompt' : enhancedPrompt;
+      final fullPrompt = _buildConversationPrompt(
+        messages,
+        enhancedPrompt,
+        includeSystem: _isFirstMessage,
+        replaceLastUser: true,
+      );
       if (_isFirstMessage) _isFirstMessage = false;
 
       await _service.sendWithStreaming(
@@ -247,13 +313,13 @@ class ChatHelpers {
     }
   }
 
-  /// Send text-only message with Universal Function Calling (Main Model or FunctionGemma)
+  /// Send text-only message with Gemma 4 tool calling.
   Future<void> sendTextOnly(
-      String prompt,
-      List<ChatMessage> messages, {
-        bool isInternalCall = false,
-        bool isFunctionResult = false,
-      }) async {
+    String prompt,
+    List<ChatMessage> messages, {
+    bool isInternalCall = false,
+    bool isFunctionResult = false,
+  }) async {
     try {
       // 1. 사용자 메시지 UI 추가
       if (!isInternalCall) {
@@ -271,16 +337,16 @@ class ChatHelpers {
       }
 
       // 2. Function Calling Loop
-      // 설정이 꺼져 있어도 Main Model을 통해 함수 호출을 시도하도록 변경됨
       if (!isInternalCall) {
         messages.last.text = "Analyzing request...";
         _onStateChanged();
 
-        // Service decides internally whether to use FunctionGemma or Main Model
-        final functionCall = await FunctionGemmaService.instance.predict(prompt);
+        final functionCall = await FunctionCallingService.instance.predict(
+          prompt,
+        );
 
         if (functionCall != null) {
-          print("🚀 Function Call Detected: ${functionCall.name}");
+          debugPrint("Function call detected: ${functionCall.name}");
 
           if (messages.isNotEmpty) {
             messages.last.text = "Running ${functionCall.name}...";
@@ -309,14 +375,19 @@ class ChatHelpers {
       final trimmedPrompt = prompt.trim();
 
       if (isInternalCall) {
-        fullPrompt = '$_systemCtx\n\n$trimmedPrompt';
+        fullPrompt = _buildConversationPrompt(
+          messages,
+          trimmedPrompt,
+          includeSystem: true,
+        );
       } else {
-        if (_isFirstMessage) {
-          fullPrompt = '$_systemCtx\n\n$trimmedPrompt';
-          _isFirstMessage = false;
-        } else {
-          fullPrompt = trimmedPrompt;
-        }
+        fullPrompt = _buildConversationPrompt(
+          messages,
+          trimmedPrompt,
+          includeSystem: _isFirstMessage,
+          replaceLastUser: true,
+        );
+        if (_isFirstMessage) _isFirstMessage = false;
       }
 
       final currentAiMsg = messages.last;
@@ -360,10 +431,10 @@ class ChatHelpers {
 
   // Generalized Function Executor
   Future<void> _handleFunctionExecution(
-      FunctionCall call,
-      String originalPrompt,
-      List<ChatMessage> messages,
-      ) async {
+    FunctionCall call,
+    String originalPrompt,
+    List<ChatMessage> messages,
+  ) async {
     String resultJson = "";
 
     try {
@@ -374,20 +445,27 @@ class ChatHelpers {
         double lat = 0.0;
         double lon = 0.0;
 
-        if (call.args['latitude'] != null)
+        if (call.args['latitude'] != null) {
           lat = double.tryParse(call.args['latitude'].toString()) ?? 0.0;
-        if (call.args['longitude'] != null)
+        }
+        if (call.args['longitude'] != null) {
           lon = double.tryParse(call.args['longitude'].toString()) ?? 0.0;
+        }
 
-        resultJson = await WeatherService.instance.getWeather(latitude: lat, longitude: lon);
+        resultJson = await WeatherService.instance.getWeather(
+          latitude: lat,
+          longitude: lon,
+        );
       } else {
-        resultJson = '{"status": "error", "message": "Unknown function: ${call.name}"}';
+        resultJson =
+            '{"status": "error", "message": "Unknown function: ${call.name}"}';
       }
     } catch (e) {
       resultJson = '{"status": "error", "message": "Execution failed: $e"}';
     }
 
-    final nextPrompt = '''
+    final nextPrompt =
+        '''
 User query: $originalPrompt
 Tool Execution: ${call.name}
 Arguments: ${call.args}
@@ -399,32 +477,53 @@ Instructions:
 ''';
 
     // Recursive call to generate natural language response
-    await sendTextOnly(nextPrompt, messages, isInternalCall: true, isFunctionResult: true);
+    await sendTextOnly(
+      nextPrompt,
+      messages,
+      isInternalCall: true,
+      isFunctionResult: true,
+    );
   }
 
   // Quick action shortcuts
   Future<void> quickAction1(List<ChatMessage> messages) async {
     await _announceStateChange('Describing room');
     // [수정] captureWithCamera 사용
-    await captureWithCamera(AppSettings.instance.promptDescribeRoom, messages, isQuickAction: true);
+    await captureWithCamera(
+      AppSettings.instance.promptDescribeRoom,
+      messages,
+      isQuickAction: true,
+    );
   }
 
   Future<void> quickAction2(List<ChatMessage> messages) async {
     await _announceStateChange('Analyzing what I can see');
     // [수정] captureWithCamera 사용
-    await captureWithCamera(AppSettings.instance.promptWhatYouSee, messages, isQuickAction: true);
+    await captureWithCamera(
+      AppSettings.instance.promptWhatYouSee,
+      messages,
+      isQuickAction: true,
+    );
   }
 
   Future<void> quickAction3(List<ChatMessage> messages) async {
     await _announceStateChange('What is this?');
     // [수정] captureWithCamera 사용
-    await captureWithCamera(AppSettings.instance.promptWhatIsThis, messages, isQuickAction: true);
+    await captureWithCamera(
+      AppSettings.instance.promptWhatIsThis,
+      messages,
+      isQuickAction: true,
+    );
   }
 
   Future<void> quickAction4(List<ChatMessage> messages) async {
     await _announceStateChange('Reading text');
     // [수정] captureWithCamera 사용
-    await captureWithCamera(AppSettings.instance.promptReadText, messages, isQuickAction: true);
+    await captureWithCamera(
+      AppSettings.instance.promptReadText,
+      messages,
+      isQuickAction: true,
+    );
   }
 
   Future<void> clearMessages(List<ChatMessage> messages) async {

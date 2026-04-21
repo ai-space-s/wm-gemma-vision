@@ -8,6 +8,7 @@ import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../config/constants.dart';
 import 'logger.dart';
 
 /// Manages background downloads using flutter_downloader plugin with isolate communication
@@ -26,7 +27,9 @@ class DownloadManager {
   static Future<void> initialize() async {
     // Fix: Isolates and IsolateNameServer are not supported on Web in the same way
     if (kIsWeb) {
-      Logger.info('DownloadManager: Web platform detected, background isolate disabled');
+      Logger.info(
+        'DownloadManager: Web platform detected, background isolate disabled',
+      );
       return;
     }
 
@@ -199,41 +202,41 @@ class DownloadManager {
       return;
     }
 
-    if (_currentTaskId == null) {
-      Logger.info('No current task to cancel');
-      return;
-    }
-
     try {
       // Get task details before cancelling to find file paths
       final tasks = await getAllTasks();
-      final currentTask = tasks.firstWhere(
-            (task) => task.taskId == _currentTaskId,
-        orElse: () => DownloadTask(
-          taskId: '',
-          status: DownloadTaskStatus.undefined,
-          progress: 0,
-          url: '',
-          filename: null,
-          savedDir: '',
-          timeCreated: 0,
-          allowCellular: true,
-        ),
-      );
+      final currentTask = _currentTaskId == null
+          ? null
+          : tasks.firstWhere(
+              (task) => task.taskId == _currentTaskId,
+              orElse: () => DownloadTask(
+                taskId: '',
+                status: DownloadTaskStatus.undefined,
+                progress: 0,
+                url: '',
+                filename: null,
+                savedDir: '',
+                timeCreated: 0,
+                allowCellular: true,
+              ),
+            );
 
       // Cancel the active download task
-      await FlutterDownloader.cancel(taskId: _currentTaskId!);
-      Logger.info('Download task cancelled: $_currentTaskId');
+      if (_currentTaskId != null) {
+        await FlutterDownloader.cancel(taskId: _currentTaskId!);
+        Logger.info('Download task cancelled: $_currentTaskId');
 
-      // Remove from flutter_downloader database AND delete files
-      await FlutterDownloader.remove(
-        taskId: _currentTaskId!,
-        shouldDeleteContent: true,
-      );
-      Logger.info('Download task removed from database with file deletion');
+        // Remove from flutter_downloader database AND delete files
+        await FlutterDownloader.remove(
+          taskId: _currentTaskId!,
+          shouldDeleteContent: true,
+        );
+        Logger.info('Download task removed from database with file deletion');
+      }
 
       // Extra cleanup: manually delete any remaining files
-      if (currentTask.taskId.isNotEmpty &&
+      if (currentTask != null &&
+          currentTask.taskId.isNotEmpty &&
           currentTask.filename != null &&
           currentTask.savedDir.isNotEmpty) {
         await _deleteDownloadFiles(currentTask.savedDir, currentTask.filename!);
@@ -252,9 +255,9 @@ class DownloadManager {
 
   /// Delete specific download files including common partial file extensions
   static Future<void> _deleteDownloadFiles(
-      String savedDir,
-      String filename,
-      ) async {
+    String savedDir,
+    String filename,
+  ) async {
     try {
       // On Web, File API behaves differently or throws.
       if (kIsWeb) return;
@@ -295,24 +298,16 @@ class DownloadManager {
       if (kIsWeb) return;
 
       final dir = await getApplicationDocumentsDirectory();
-      final modelExtensions = ['.gguf', '.bin', '.safetensors', '.pt', '.pth'];
-
-      final List<FileSystemEntity> files = dir.listSync();
-      for (final file in files) {
-        if (file is File) {
-          final filename = file.path.split('/').last.toLowerCase();
-
-          // Identify model files by extension or filename patterns
-          final isModelFile =
-              modelExtensions.any((ext) => filename.endsWith(ext)) ||
-                  filename.contains('gemma') ||
-                  filename.contains('model');
-
-          if (isModelFile) {
-            await file.delete();
-            Logger.info('Cleaned up model file: ${file.path}');
-          }
-        }
+      final modelPath = '${dir.path}/$modelName';
+      final modelFile = File(modelPath);
+      if (await modelFile.exists()) {
+        await modelFile.delete();
+        Logger.info('Cleaned up model file: ${modelFile.path}');
+      }
+      final modelDir = Directory(modelPath);
+      if (await modelDir.exists()) {
+        await modelDir.delete(recursive: true);
+        Logger.info('Cleaned up model directory: ${modelDir.path}');
       }
     } catch (e) {
       Logger.error('Error cleaning up model files: $e');
@@ -328,9 +323,9 @@ class DownloadManager {
       final failedTasks = tasks
           .where(
             (task) =>
-        task.status == DownloadTaskStatus.failed ||
-            task.status == DownloadTaskStatus.canceled,
-      )
+                task.status == DownloadTaskStatus.failed ||
+                task.status == DownloadTaskStatus.canceled,
+          )
           .toList();
 
       for (final task in failedTasks) {

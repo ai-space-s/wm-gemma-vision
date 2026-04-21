@@ -4,7 +4,6 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
-import 'package:flutter_gemma/flutter_gemma.dart'; // [수정] 중요: Gemma 플러그인 임포트
 import 'package:gemma_chat/download_page/model_download_page.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'app_settings.dart';
@@ -36,10 +35,6 @@ void downloadCallback(String id, int status, int progress) {
 Future<void> main() async {
   // Ensure Flutter binding is initialized before calling platform-specific code
   WidgetsFlutterBinding.ensureInitialized();
-
-  // [수정] Gemma 플러그인 초기화 (앱 실행 전 필수)
-  // 이 호출이 없으면 "Bad state: FlutterGemma not initialized!" 에러가 발생합니다.
-  await FlutterGemma.initialize();
 
   // Initialize the flutter_downloader plugin for background downloads
   // This must be done before any download operations can be performed

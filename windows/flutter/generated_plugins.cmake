@@ -6,7 +6,6 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   desktop_webview_window
   file_selector_windows
-  flutter_gemma
   flutter_tts
   permission_handler_windows
   speech_to_text_windows

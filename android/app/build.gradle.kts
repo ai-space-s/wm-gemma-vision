@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -16,10 +18,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
-
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.tommasogiovannini.gemma"
@@ -31,8 +29,8 @@ android {
         versionName = flutter.versionName
     }
 
-    aaptOptions {
-        noCompress += "task"
+    androidResources {
+        noCompress += listOf("task", "bin", "json", "wasm", "litertlm")
     }
 
     buildTypes {
@@ -54,6 +52,13 @@ flutter {
     source = "../.."
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
 dependencies {
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
 }

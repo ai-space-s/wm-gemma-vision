@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:flutter_gemma/pigeon.g.dart';
 
 import 'gemma_service.dart';
 import 'streaming_tts_service.dart';
@@ -24,7 +23,7 @@ class BootstrapManager {
   static Future<BootstrapResult> bootstrap({
     required BuildContext context,
     required String systemContext,
-    required PreferredBackend backend,
+    required MlcBackend backend,
     required GlobalKey<PromptBarState> promptBarKey,
     required VoidCallback onToggleMessages,
     required VoidCallback onToggleCamera,
@@ -153,6 +152,9 @@ class BootstrapManager {
       speechService.updateIsGeneratingCallback(() => chatHelpers.isGenerating);
 
       // Step 6: Initialize keyboard handler with all callbacks
+      if (!context.mounted) {
+        throw BootstrapException("Context not mounted");
+      }
       final keyboardHandler = KeyboardHandler(
         context: context,
         promptBarKey: promptBarKey,
@@ -170,15 +172,15 @@ class BootstrapManager {
       debugPrint("[BootstrapManager] Keyboard handler initialized");
 
       // Step 7: Initialize AI model (heaviest operation, can fail)
-      debugPrint("[BootstrapManager] Initializing Gemma service...");
+      debugPrint("[BootstrapManager] Initializing Gemma 4 service...");
       await GemmaService.instance.init(backend);
 
       if (!isMounted() || isDisposed()) {
-        debugPrint("[BootstrapManager] Not mounted after Gemma init");
+        debugPrint("[BootstrapManager] Not mounted after Gemma 4 init");
         _globalBootstrapCompleter!.complete();
         throw BootstrapException("Widget not mounted");
       }
-      debugPrint("[BootstrapManager] Gemma service initialized successfully");
+      debugPrint("[BootstrapManager] Gemma 4 service initialized successfully");
 
       if (!_globalBootstrapCompleter!.isCompleted) {
         _globalBootstrapCompleter!.complete();

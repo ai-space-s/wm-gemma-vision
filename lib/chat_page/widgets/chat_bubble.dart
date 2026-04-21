@@ -102,12 +102,18 @@ class ChatBubble extends StatelessWidget {
 
     final userBubbleColor = highContrast ? Colors.black : Colors.blueAccent;
     // msg.isFunctionResult가 true이면 다른 색 사용
-    final aiBubbleColor = msg.isFunctionResult ? aiFunctionColor : aiNormalColor;
+    final aiBubbleColor = msg.isFunctionResult
+        ? aiFunctionColor
+        : aiNormalColor;
 
     // 고대비일 경우 테두리로 구분
     final border = highContrast
         ? Border.all(color: Colors.white, width: 2)
-        : (msg.isUser ? null : (msg.isFunctionResult ? Border.all(color: Colors.indigo.shade100) : null));
+        : (msg.isUser
+              ? null
+              : (msg.isFunctionResult
+                    ? Border.all(color: Colors.indigo.shade100)
+                    : null));
 
     final textColor = highContrast
         ? Colors.white
@@ -140,7 +146,8 @@ class ChatBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (msg.text.isNotEmpty) _buildMessageContent(context, textColor),
+                if (msg.text.isNotEmpty)
+                  _buildMessageContent(context, textColor),
 
                 if (msg.stats != null &&
                     !msg.isStreaming &&
@@ -228,21 +235,17 @@ class ChatBubble extends StatelessWidget {
   }
 
   Widget _buildStatsWidget(MessageStats stats, Color textColor) {
-    final opacityColor = textColor.withOpacity(0.7);
+    final opacityColor = textColor.withValues(alpha: 0.7);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: textColor.withOpacity(0.1),
+        color: textColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.analytics_outlined,
-            size: 10,
-            color: opacityColor,
-          ),
+          Icon(Icons.analytics_outlined, size: 10, color: opacityColor),
           const SizedBox(width: 3),
           Text(
             '${stats.tokenCount} tokens • ${stats.totalLatency!.toStringAsFixed(1)}s',

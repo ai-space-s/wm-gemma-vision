@@ -1,5 +1,6 @@
 // lib/chat_page/services/sound_manager.dart
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../app_settings.dart';
 
@@ -27,7 +28,7 @@ class SoundManager {
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play(AssetSource('woosh.mp3'));
     } catch (e) {
-      print('Error playing connection check: $e');
+      debugPrint('Error playing connection check: $e');
     }
   }
 
@@ -42,7 +43,7 @@ class SoundManager {
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play(AssetSource('woosh.mp3'));
     } catch (e) {
-      print('Error playing woosh sound: $e');
+      debugPrint('Error playing woosh sound: $e');
       await SystemSound.play(SystemSoundType.click);
     }
   }
@@ -87,7 +88,7 @@ class SoundManager {
       await _loadingPlayer.play(AssetSource('loading.mp3'));
     } catch (e) {
       _isLoadingPlaying = false;
-      print('Error playing loading sound: $e');
+      debugPrint('Error playing loading sound: $e');
     }
   }
 
@@ -99,7 +100,7 @@ class SoundManager {
       if (!_earconsEnabled) return;
       await _loadingPlayer.stop();
     } catch (e) {
-      print('Error stopping loading sound: $e');
+      debugPrint('Error stopping loading sound: $e');
     }
   }
 
@@ -108,7 +109,9 @@ class SoundManager {
     try {
       if (!_earconsEnabled) return;
       await _loadingPlayer.pause();
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('Error pausing loading sound: $e');
+    }
   }
 
   Future<void> resumeLoading() async {
@@ -116,7 +119,9 @@ class SoundManager {
     try {
       if (!_earconsEnabled) return;
       await _loadingPlayer.resume();
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('Error resuming loading sound: $e');
+    }
   }
 
   void dispose() {

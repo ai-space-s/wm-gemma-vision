@@ -1,14 +1,14 @@
 # Gemma Vision  
 
-AI vision assistant for the blind. Built with Google’s Gemma 3n model to describe scenes, read text, and identify objects – all via a voice-first interface.  
+AI assistant for the blind. Built around Gemma 4 LiteRT-LM, OCR-assisted camera flows, and a voice-first interface.  
 
 ## Features  
 
 - **8BitDo controller support** for hands-free operation  
 - **Offline AI processing** after initial model download  
 - **Complete privacy** — nothing leaves your device  
-- **Scene description** and text reading  
-- **Ask follow-up questions** — Gemma remembers previous photos you've sent  
+- **Text reading** through on-device OCR and Gemma 4 reasoning  
+- **Ask follow-up questions** — Gemma remembers previous chat context  
 - **Screen reader optimized** for VoiceOver and TalkBack  
 
 ## Download  

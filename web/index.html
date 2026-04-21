@@ -17,19 +17,11 @@
   <title>gemma_chat</title>
   <link rel="manifest" href="manifest.json">
 
-  <script type="module">
-    import { FilesetResolver, LlmInference } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai';
-
-    // Flutter 플러그인에서 접근할 수 있도록 window 객체에 할당
-    window.FilesetResolver = FilesetResolver;
-    window.LlmInference = LlmInference;
-  </script>
-
   <script>
     window.cacheHas = async function(url) {
       if (!('caches' in window)) return false;
       try {
-        const cache = await caches.open('flutter_gemma_cache');
+        const cache = await caches.open('gemma4_mlc_cache');
         const response = await cache.match(url);
         return !!response;
       } catch (e) {

@@ -2,21 +2,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_gemma/pigeon.g.dart';
-import 'dart:io';
 import 'app_settings.dart';
-import 'chat_page/services/function_gemma_service.dart';
+import 'chat_page/services/gemma_service.dart';
 import 'chat_page/widgets/semantic_material_button.dart';
 import 'chat_page/widgets/semantic_button_registry.dart';
-import 'download_page/model_download_page.dart';
-import 'download_page/models/enums.dart';
 import 'prompt_settings_page.dart';
 
 /// Settings page for configuring AI system context, controller layout, and processing backend
 /// Optimized for accessibility with comprehensive keyboard navigation and screen reader support
 class SettingsPage extends StatefulWidget {
   final String systemContext;
-  final PreferredBackend backend;
+  final MlcBackend backend;
 
   const SettingsPage({
     super.key,
@@ -29,29 +25,34 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late PreferredBackend _selectedBackend;
+  late MlcBackend _selectedBackend;
   bool _hasChanges = false;
   late bool _hapticsEnabled;
   late bool _earconsEnabled;
   late bool _highContrastEnabled;
-  late bool _useFunctionGemma; // [이름 변경] 의미 명확화를 위해 내부 변수명 변경 (값은 enableFunctionCalling 매핑)
+  late bool _toolCallingEnabled;
   late AppFontSize _fontSize;
 
   late final bool _initialHapticsEnabled;
   late final bool _initialEarconsEnabled;
   late final bool _initialHighContrastEnabled;
-  late final bool _initialUseFunctionGemma;
+  late final bool _initialToolCallingEnabled;
   late final AppFontSize _initialFontSize;
 
   /// Platform detection for accessibility-specific features
   bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
-  Color get _backgroundColor => _highContrastEnabled ? Colors.black : Theme.of(context).colorScheme.surface;
+  Color get _backgroundColor => _highContrastEnabled
+      ? Colors.black
+      : Theme.of(context).colorScheme.surface;
   Color get _textColor => _highContrastEnabled ? Colors.white : Colors.black87;
-  Color get _secondaryTextColor => _highContrastEnabled ? Colors.white70 : Colors.grey.shade600;
-  Color get _containerColor => _highContrastEnabled ? Colors.grey.shade900 : Colors.white;
-  Color get _borderColor => _highContrastEnabled ? Colors.white24 : Colors.grey.shade300;
+  Color get _secondaryTextColor =>
+      _highContrastEnabled ? Colors.white70 : Colors.grey.shade600;
+  Color get _containerColor =>
+      _highContrastEnabled ? Colors.grey.shade900 : Colors.white;
+  Color get _borderColor =>
+      _highContrastEnabled ? Colors.white24 : Colors.grey.shade300;
 
   /// Page-wide focus scope for comprehensive keyboard navigation
   final FocusScopeNode _pageScope = FocusScopeNode(
@@ -66,13 +67,13 @@ class _SettingsPageState extends State<SettingsPage> {
     _hapticsEnabled = settings.hapticsEnabled;
     _earconsEnabled = settings.earconsEnabled;
     _highContrastEnabled = settings.highContrastEnabled;
-    _useFunctionGemma = settings.enableFunctionCalling; // AppSettings의 변수는 그대로 두고 UI 의미만 변경
+    _toolCallingEnabled = settings.enableFunctionCalling;
     _fontSize = settings.fontSize;
 
     _initialHapticsEnabled = _hapticsEnabled;
     _initialEarconsEnabled = _earconsEnabled;
     _initialHighContrastEnabled = _highContrastEnabled;
-    _initialUseFunctionGemma = _useFunctionGemma;
+    _initialToolCallingEnabled = _toolCallingEnabled;
     _initialFontSize = _fontSize;
   }
 
@@ -88,16 +89,16 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _hasChanges =
           _selectedBackend != widget.backend ||
-              _hapticsEnabled != _initialHapticsEnabled ||
-              _earconsEnabled != _initialEarconsEnabled ||
-              _highContrastEnabled != _initialHighContrastEnabled ||
-              _useFunctionGemma != _initialUseFunctionGemma ||
-              _fontSize != _initialFontSize;
+          _hapticsEnabled != _initialHapticsEnabled ||
+          _earconsEnabled != _initialEarconsEnabled ||
+          _highContrastEnabled != _initialHighContrastEnabled ||
+          _toolCallingEnabled != _initialToolCallingEnabled ||
+          _fontSize != _initialFontSize;
     });
   }
 
   /// Handle backend selection with change tracking
-  void _onBackendChanged(PreferredBackend? backend) {
+  void _onBackendChanged(MlcBackend? backend) {
     if (backend != null) {
       setState(() => _selectedBackend = backend);
       _refreshHasChanges();
@@ -110,14 +111,12 @@ class _SettingsPageState extends State<SettingsPage> {
       hapticsEnabled: _hapticsEnabled,
       earconsEnabled: _earconsEnabled,
       highContrastEnabled: _highContrastEnabled,
-      enableFunctionCalling: _useFunctionGemma, // 저장
+      enableFunctionCalling: _toolCallingEnabled,
       fontSize: _fontSize,
     );
     if (!mounted) return;
 
-    Navigator.of(context).pop({
-      'backend': _selectedBackend,
-    });
+    Navigator.of(context).pop({'backend': _selectedBackend});
   }
 
   /// Cancel changes and return to chat page
@@ -125,18 +124,18 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _openControllerSettings() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ControllerSettingsPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const ControllerSettingsPage()),
     );
   }
 
   void _openPromptSettings() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const PromptSettingsPage()),
-    ).then((_) {
-      setState(() {});
-    });
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(builder: (context) => const PromptSettingsPage()),
+        )
+        .then((_) {
+          setState(() {});
+        });
   }
 
   @override
@@ -150,7 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
       LogicalKeySet(LogicalKeyboardKey.arrowLeft): const PreviousFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.tab): const NextFocusIntent(),
       LogicalKeySet(LogicalKeyboardKey.tab, LogicalKeyboardKey.shift):
-      const PreviousFocusIntent(),
+          const PreviousFocusIntent(),
 
       LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
       LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
@@ -158,15 +157,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (_isIOS) {
       shortcuts[LogicalKeySet(
-        LogicalKeyboardKey.control,
-        LogicalKeyboardKey.alt,
-        LogicalKeyboardKey.space,
-      )] = const ActivateIntent();
+            LogicalKeyboardKey.control,
+            LogicalKeyboardKey.alt,
+            LogicalKeyboardKey.space,
+          )] =
+          const ActivateIntent();
     }
 
     return MediaQuery(
-      data: MediaQuery.of(context)
-          .copyWith(textScaler: TextScaler.linear(textScale)),
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(textScale)),
       child: Shortcuts(
         shortcuts: shortcuts,
         child: Actions(
@@ -227,10 +228,12 @@ class _SettingsPageState extends State<SettingsPage> {
                         decoration: BoxDecoration(
                           gradient: _highContrastEnabled
                               ? null
-                              : const LinearGradient(colors: [
-                            Color(0xFF4CAF50),
-                            Color(0xFF388E3C)
-                          ]),
+                              : const LinearGradient(
+                                  colors: [
+                                    Color(0xFF4CAF50),
+                                    Color(0xFF388E3C),
+                                  ],
+                                ),
                           color: _highContrastEnabled ? Colors.white : null,
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -276,25 +279,29 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      _wrapFocus(_buildToggleTile(
-                        title: 'Haptic feedback',
-                        subtitle: 'Vibrate the phone for actions',
-                        value: _hapticsEnabled,
-                        onChanged: (value) {
-                          setState(() => _hapticsEnabled = value);
-                          _refreshHasChanges();
-                        },
-                      )),
+                      _wrapFocus(
+                        _buildToggleTile(
+                          title: 'Haptic feedback',
+                          subtitle: 'Vibrate the phone for actions',
+                          value: _hapticsEnabled,
+                          onChanged: (value) {
+                            setState(() => _hapticsEnabled = value);
+                            _refreshHasChanges();
+                          },
+                        ),
+                      ),
                       const SizedBox(height: 12),
-                      _wrapFocus(_buildToggleTile(
-                        title: 'Earcons',
-                        subtitle: 'Play short UI sounds',
-                        value: _earconsEnabled,
-                        onChanged: (value) {
-                          setState(() => _earconsEnabled = value);
-                          _refreshHasChanges();
-                        },
-                      )),
+                      _wrapFocus(
+                        _buildToggleTile(
+                          title: 'Earcons',
+                          subtitle: 'Play short UI sounds',
+                          value: _earconsEnabled,
+                          onChanged: (value) {
+                            setState(() => _earconsEnabled = value);
+                            _refreshHasChanges();
+                          },
+                        ),
+                      ),
 
                       const SizedBox(height: 40),
 
@@ -305,25 +312,24 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      _wrapFocus(_buildToggleTile(
-                        title: 'High contrast theme',
-                        subtitle: 'Improve readability in bright conditions',
-                        value: _highContrastEnabled,
-                        onChanged: (value) {
-                          setState(() => _highContrastEnabled = value);
-                          _refreshHasChanges();
-                        },
-                      )),
+                      _wrapFocus(
+                        _buildToggleTile(
+                          title: 'High contrast theme',
+                          subtitle: 'Improve readability in bright conditions',
+                          value: _highContrastEnabled,
+                          onChanged: (value) {
+                            setState(() => _highContrastEnabled = value);
+                            _refreshHasChanges();
+                          },
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       _wrapFocus(_buildFontSizeToggle()),
 
                       const SizedBox(height: 40),
 
                       _wrapFocus(
-                        _buildSectionHeader(
-                          'Other',
-                          'Additional settings',
-                        ),
+                        _buildSectionHeader('Other', 'Additional settings'),
                       ),
                       const SizedBox(height: 16),
                       // [수정] 옵션 이름 및 설명 변경
@@ -360,25 +366,36 @@ class _SettingsPageState extends State<SettingsPage> {
         : 'your screen reader';
     return Semantics(
       label:
-      'Controller tip: For best experience, temporarily turn off $platform when using a controller.',
+          'Controller tip: For best experience, temporarily turn off $platform when using a controller.',
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           gradient: _highContrastEnabled
               ? LinearGradient(colors: [Colors.grey.shade900, Colors.black])
-              : LinearGradient(colors: [Colors.blue.shade50, Colors.indigo.shade50]),
+              : LinearGradient(
+                  colors: [Colors.blue.shade50, Colors.indigo.shade50],
+                ),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _highContrastEnabled ? Colors.white : Colors.blue.shade200),
+          border: Border.all(
+            color: _highContrastEnabled ? Colors.white : Colors.blue.shade200,
+          ),
         ),
         child: Row(
           children: [
-            Icon(Icons.lightbulb_outline_rounded, color: _highContrastEnabled ? Colors.yellow : Colors.blue.shade600),
+            Icon(
+              Icons.lightbulb_outline_rounded,
+              color: _highContrastEnabled
+                  ? Colors.yellow
+                  : Colors.blue.shade600,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 'For best experience, temporarily turn off $platform when using a controller.',
                 style: TextStyle(
-                  color: _highContrastEnabled ? Colors.white : Colors.blue.shade700,
+                  color: _highContrastEnabled
+                      ? Colors.white
+                      : Colors.blue.shade700,
                   fontSize: 16,
                   height: 1.4,
                 ),
@@ -415,7 +432,7 @@ class _SettingsPageState extends State<SettingsPage> {
     border: Border.all(color: _borderColor),
     boxShadow: [
       BoxShadow(
-        color: Colors.black.withOpacity(0.05),
+        color: Colors.black.withValues(alpha: 0.05),
         blurRadius: 10,
         offset: const Offset(0, 2),
       ),
@@ -432,7 +449,11 @@ class _SettingsPageState extends State<SettingsPage> {
         decoration: _boxDecoration(),
         child: Row(
           children: [
-            Icon(Icons.chat_bubble_outline_rounded, color: _highContrastEnabled ? Colors.white : Colors.blue, size: 28),
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              color: _highContrastEnabled ? Colors.white : Colors.blue,
+              size: 28,
+            ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -449,15 +470,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 4),
                   Text(
                     'Edit system context & commands',
-                    style: TextStyle(
-                      color: _secondaryTextColor,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: _secondaryTextColor, fontSize: 14),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, color: _secondaryTextColor, size: 16),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: _secondaryTextColor,
+              size: 16,
+            ),
           ],
         ),
       ),
@@ -474,7 +496,11 @@ class _SettingsPageState extends State<SettingsPage> {
         decoration: _boxDecoration(),
         child: Row(
           children: [
-            Icon(Icons.gamepad_rounded, color: _highContrastEnabled ? Colors.white : Colors.blue, size: 28),
+            Icon(
+              Icons.gamepad_rounded,
+              color: _highContrastEnabled ? Colors.white : Colors.blue,
+              size: 28,
+            ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -491,15 +517,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 4),
                   Text(
                     'View layout and setup info',
-                    style: TextStyle(
-                      color: _secondaryTextColor,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: _secondaryTextColor, fontSize: 14),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, color: _secondaryTextColor, size: 16),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: _secondaryTextColor,
+              size: 16,
+            ),
           ],
         ),
       ),
@@ -531,59 +558,17 @@ class _SettingsPageState extends State<SettingsPage> {
       onChanged: onChanged,
     );
 
-    return Container(
-      decoration: _boxDecoration(),
-      child: content,
-    );
+    return Container(decoration: _boxDecoration(), child: content);
   }
 
   Widget _buildFunctionCallingToggle() {
     return _buildToggleTile(
-      title: 'Use FunctionGemma for function calling',
-      subtitle: 'Use specialized model (slow but accurate). If off, uses main model (fast).',
-      value: _useFunctionGemma,
-      onChanged: (value) async {
-        if (value) {
-          // 1. 모델 준비 시도
-          final success = await FunctionGemmaService.instance.prepareModel();
-
-          if (success) {
-            setState(() => _useFunctionGemma = true);
-            _refreshHasChanges();
-          } else {
-            // 2. 파일이 없으면 다운로드 페이지로 이동
-            if (mounted) {
-              final result = await Navigator.of(context).push<bool>(
-                MaterialPageRoute(
-                  builder: (context) => const ModelDownloadPage(
-                    target: DownloadTarget.functionModel,
-                  ),
-                ),
-              );
-
-              // 3. 다운로드 결과 처리
-              if (result == true) {
-                // 다운로드 성공
-                if (await FunctionGemmaService.instance.prepareModel()) {
-                  setState(() => _useFunctionGemma = true);
-                  _refreshHasChanges();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('FunctionGemma enabled.')),
-                    );
-                  }
-                }
-              } else {
-                // 취소됨 -> 옵션 끄기 (유지)
-                setState(() => _useFunctionGemma = false);
-                // 변경사항이 없으므로 refresh 호출 불필요하거나 false로 유지
-              }
-            }
-          }
-        } else {
-          setState(() => _useFunctionGemma = false);
-          _refreshHasChanges();
-        }
+      title: 'Enable tool calling',
+      subtitle: 'Use Gemma 4 to call built-in tools such as lunch and weather.',
+      value: _toolCallingEnabled,
+      onChanged: (value) {
+        setState(() => _toolCallingEnabled = value);
+        _refreshHasChanges();
       },
     );
   }
@@ -596,30 +581,7 @@ class _SettingsPageState extends State<SettingsPage> {
       padding: const EdgeInsets.all(20),
       child: isLarge
           ? Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Text size',
-            style: TextStyle(
-              color: _textColor,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Normal or large',
-            style: TextStyle(color: _secondaryTextColor, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          _buildFontSizeButtons(),
-        ],
-      )
-          : Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   'Text size',
@@ -629,17 +591,43 @@ class _SettingsPageState extends State<SettingsPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                const SizedBox(height: 4),
                 Text(
                   'Normal or large',
                   style: TextStyle(color: _secondaryTextColor, fontSize: 13),
                 ),
+                const SizedBox(height: 16),
+                _buildFontSizeButtons(),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Text size',
+                        style: TextStyle(
+                          color: _textColor,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'Normal or large',
+                        style: TextStyle(
+                          color: _secondaryTextColor,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                _buildFontSizeButtons(),
               ],
             ),
-          ),
-          const SizedBox(width: 16),
-          _buildFontSizeButtons(),
-        ],
-      ),
     );
   }
 
@@ -651,7 +639,9 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: _fontSize == AppFontSize.large ? MainAxisAlignment.spaceEvenly : MainAxisAlignment.start,
+      mainAxisAlignment: _fontSize == AppFontSize.large
+          ? MainAxisAlignment.spaceEvenly
+          : MainAxisAlignment.start,
       children: [
         _fontSizeOption(AppFontSize.normal, 'Normal'),
         _fontSizeOption(AppFontSize.large, 'Large'),
@@ -661,12 +651,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _fontSizeOption(AppFontSize size, String label) {
     final selected = _fontSize == size;
-    final selectedColor = _highContrastEnabled ? Colors.white : Colors.blue.shade600;
+    final selectedColor = _highContrastEnabled
+        ? Colors.white
+        : Colors.blue.shade600;
 
     return SemanticMaterialButton(
       label: '$label text size',
       hint:
-      'Double-tap to select ${label.toLowerCase()} size${selected ? ', currently selected' : ''}',
+          'Double-tap to select ${label.toLowerCase()} size${selected ? ', currently selected' : ''}',
       onPressed: () {
         setState(() => _fontSize = size);
         _refreshHasChanges();
@@ -680,7 +672,9 @@ class _SettingsPageState extends State<SettingsPage> {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? (_highContrastEnabled ? Colors.black : Colors.white) : _textColor,
+            color: selected
+                ? (_highContrastEnabled ? Colors.black : Colors.white)
+                : _textColor,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -720,14 +714,19 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.all(20),
         child: isLarge
             ? Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            content[0],
-            const SizedBox(height: 16),
-            _buildBackendToggle(),
-          ],
-        )
-            : Row(children: [Expanded(child: content[0]), content[2]]),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  content[0],
+                  const SizedBox(height: 16),
+                  _buildBackendToggle(),
+                ],
+              )
+            : Row(
+                children: [
+                  Expanded(child: content[0]),
+                  content[2],
+                ],
+              ),
       ),
     );
   }
@@ -740,26 +739,26 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: _fontSize == AppFontSize.large ? MainAxisAlignment.spaceEvenly : MainAxisAlignment.start,
+      mainAxisAlignment: _fontSize == AppFontSize.large
+          ? MainAxisAlignment.spaceEvenly
+          : MainAxisAlignment.start,
       children: [
-        _backendOption(PreferredBackend.cpu, 'CPU', Icons.memory_rounded),
-        _backendOption(
-          PreferredBackend.gpu,
-          'GPU',
-          Icons.developer_board_rounded,
-        ),
+        _backendOption(MlcBackend.cpu, 'CPU', Icons.memory_rounded),
+        _backendOption(MlcBackend.gpu, 'GPU', Icons.developer_board_rounded),
       ],
     ),
   );
 
-  Widget _backendOption(PreferredBackend b, String lbl, IconData icn) {
+  Widget _backendOption(MlcBackend b, String lbl, IconData icn) {
     final selected = _selectedBackend == b;
-    final selectedColor = _highContrastEnabled ? Colors.white : Colors.blue.shade600;
+    final selectedColor = _highContrastEnabled
+        ? Colors.white
+        : Colors.blue.shade600;
 
     return SemanticMaterialButton(
       label: '$lbl backend',
       hint:
-      'Double-tap to select ${lbl.toLowerCase()} processing${selected ? ', currently selected' : ''}',
+          'Double-tap to select ${lbl.toLowerCase()} processing${selected ? ', currently selected' : ''}',
       onPressed: () => _onBackendChanged(b),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -773,13 +772,17 @@ class _SettingsPageState extends State<SettingsPage> {
             Icon(
               icn,
               size: 18,
-              color: selected ? (_highContrastEnabled ? Colors.black : Colors.white) : _secondaryTextColor,
+              color: selected
+                  ? (_highContrastEnabled ? Colors.black : Colors.white)
+                  : _secondaryTextColor,
             ),
             const SizedBox(width: 8),
             Text(
               lbl,
               style: TextStyle(
-                color: selected ? (_highContrastEnabled ? Colors.black : Colors.white) : _textColor,
+                color: selected
+                    ? (_highContrastEnabled ? Colors.black : Colors.white)
+                    : _textColor,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -815,17 +818,19 @@ class _SettingsPageState extends State<SettingsPage> {
   );
 
   Widget _actionBtn(
-      String lbl,
-      String hint,
-      VoidCallback? onTap, {
-        required bool primary,
-        bool enabled = true,
-      }) {
+    String lbl,
+    String hint,
+    VoidCallback? onTap, {
+    required bool primary,
+    bool enabled = true,
+  }) {
     if (!enabled || onTap == null) {
       return Container(
         height: 56,
         decoration: BoxDecoration(
-          color: _highContrastEnabled ? Colors.grey.shade800 : Colors.grey.shade200,
+          color: _highContrastEnabled
+              ? Colors.grey.shade800
+              : Colors.grey.shade200,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: _borderColor),
         ),
@@ -860,7 +865,9 @@ class _SettingsPageState extends State<SettingsPage> {
         decoration: BoxDecoration(
           gradient: (_highContrastEnabled || !primary)
               ? null
-              : const LinearGradient(colors: [Color(0xFF4CAF50), Color(0xFF388E3C)]),
+              : const LinearGradient(
+                  colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
+                ),
           color: bgColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
@@ -869,8 +876,8 @@ class _SettingsPageState extends State<SettingsPage> {
           boxShadow: [
             BoxShadow(
               color: primary
-                  ? Colors.green.withOpacity(.2)
-                  : Colors.black.withOpacity(.05),
+                  ? Colors.green.withValues(alpha: .2)
+                  : Colors.black.withValues(alpha: .05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -879,10 +886,7 @@ class _SettingsPageState extends State<SettingsPage> {
         child: Center(
           child: Text(
             lbl,
-            style: TextStyle(
-              color: txtColor,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(color: txtColor, fontWeight: FontWeight.w600),
           ),
         ),
       ),
@@ -955,41 +959,17 @@ class ControllerSettingsPage extends StatelessWidget {
     const data = [
       ('Right Bumper (R1)', 'F1', 'Send with photo'),
       ('Large Right Trigger (R2)', 'F2', 'Toggle voice input'),
-      (
-      'Plus button (Center Top-Right)',
-      'F3',
-      'New chat',
-      ),
+      ('Plus button (Center Top-Right)', 'F3', 'New chat'),
       ('X top round button', 'F4', 'What is this?'),
       ('A right round button', 'F5', 'Describe room'),
       ('Y left round button', 'F6', 'Read text'),
       ('B bottom round button', 'F7', 'Tell me what you see'),
-      (
-      'Heart button (Center Bottom-Right)',
-      'F8',
-      'Toggle settings',
-      ),
+      ('Heart button (Center Bottom-Right)', 'F8', 'Toggle settings'),
       ('Small Left Bumper (L1)', 'F9', 'Send text only'),
-      (
-      'Star button (Center Bottom-Left)',
-      'F10',
-      'Toggle show messages',
-      ),
-      (
-      'Minus button (Center Top-Left)',
-      'Enter',
-      'Activate button',
-      ),
-      (
-      'User Mapped (e.g. L2)',
-      'F11',
-      'Connection Test (Vibration)',
-      ),
-      (
-      'User Mapped (Reserved)',
-      'F12',
-      'Wake App (Background)',
-      ),
+      ('Star button (Center Bottom-Left)', 'F10', 'Toggle show messages'),
+      ('Minus button (Center Top-Left)', 'Enter', 'Activate button'),
+      ('User Mapped (e.g. L2)', 'F11', 'Connection Test (Vibration)'),
+      ('User Mapped (Reserved)', 'F12', 'Wake App (Background)'),
     ];
 
     Widget row(String a, String b, String c, {bool header = false}) {
@@ -1027,20 +1007,23 @@ class ControllerSettingsPage extends StatelessWidget {
       );
 
       return header
-          ? Container(color: Colors.grey.shade300.withOpacity(.4), child: r)
+          ? Container(
+              color: Colors.grey.shade300.withValues(alpha: .4),
+              child: r,
+            )
           : Focus(
-        child: Semantics(
-          label: '$a, key $b, action: $c',
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade300),
+              child: Semantics(
+                label: '$a, key $b, action: $c',
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey.shade300),
+                    ),
+                  ),
+                  child: r,
+                ),
               ),
-            ),
-            child: r,
-          ),
-        ),
-      );
+            );
     }
 
     return Column(
@@ -1058,7 +1041,7 @@ class ControllerSettingsPage extends StatelessWidget {
       border: Border.all(color: Colors.grey.shade300),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.05),
+          color: Colors.black.withValues(alpha: 0.05),
           blurRadius: 10,
           offset: const Offset(0, 2),
         ),
@@ -1070,7 +1053,7 @@ class ControllerSettingsPage extends StatelessWidget {
       children: [
         Semantics(
           label:
-          'Image showing the physical controller layout. A sighted helper can refer to it during setup.',
+              'Image showing the physical controller layout. A sighted helper can refer to it during setup.',
           image: true,
           child: Container(
             height: 200,
@@ -1084,7 +1067,11 @@ class ControllerSettingsPage extends StatelessWidget {
                     'assets/controller_setup.png',
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
-                      return const Icon(Icons.gamepad, size: 50, color: Colors.grey);
+                      return const Icon(
+                        Icons.gamepad,
+                        size: 50,
+                        color: Colors.grey,
+                      );
                     },
                   ),
                   const SizedBox(height: 8),
@@ -1118,7 +1105,7 @@ class ControllerSettingsPage extends StatelessWidget {
           border: Border.all(color: Colors.grey.shade300),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(.05),
+              color: Colors.black.withValues(alpha: .05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -1127,10 +1114,7 @@ class ControllerSettingsPage extends StatelessWidget {
         child: const Center(
           child: Text(
             'Back',
-            style: TextStyle(
-              color: Colors.blue,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600),
           ),
         ),
       ),

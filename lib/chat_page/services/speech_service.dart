@@ -20,7 +20,7 @@ class SpeechService {
   bool _speechEnabled = false;
   bool _listening = false;
   bool _sendButtonPressed =
-  false; // Track if user sent message during dictation
+      false; // Track if user sent message during dictation
   bool _isStoppingDictation = false; // Prevent race conditions
 
   SpeechService({
@@ -29,8 +29,8 @@ class SpeechService {
     required GlobalKey<PromptBarState> promptBarKey,
     required bool Function() isGenerating,
   }) : _tts = tts,
-        _onStateChanged = onStateChanged,
-        _promptBarKey = promptBarKey {
+       _onStateChanged = onStateChanged,
+       _promptBarKey = promptBarKey {
     updateIsGeneratingCallback(isGenerating);
   }
 
@@ -86,7 +86,8 @@ class SpeechService {
     // On Android, SemanticsService.announce interacts with TalkBack.
     // On other platforms (or if fallback is preferred), use TTS.
     if (Platform.isAndroid) {
-      SemanticsService.announce(message, ui.TextDirection.ltr);
+      final view = ui.PlatformDispatcher.instance.views.first;
+      SemanticsService.sendAnnouncement(view, message, ui.TextDirection.ltr);
     } else {
       _tts.speak(message);
     }
@@ -162,9 +163,11 @@ class SpeechService {
       },
       listenFor: const Duration(minutes: 5), // Long session for complex prompts
       pauseFor: const Duration(seconds: 60), // Handle pauses in speech
-      partialResults: true, // Show text as it's being recognized
-      cancelOnError: false, // Continue listening despite errors
-      listenMode: ListenMode.dictation, // Optimized for text dictation
+      listenOptions: SpeechListenOptions(
+        partialResults: true,
+        cancelOnError: false,
+        listenMode: ListenMode.dictation,
+      ),
     );
   }
 
@@ -183,7 +186,7 @@ class SpeechService {
   /* Cleanup and misc */
 
   /// Keyboard event handler (currently pass-through)
-  KeyEventResult handleFocusKey(FocusNode _, KeyEvent __) =>
+  KeyEventResult handleFocusKey(FocusNode node, KeyEvent event) =>
       KeyEventResult.ignored;
 
   void dispose() {

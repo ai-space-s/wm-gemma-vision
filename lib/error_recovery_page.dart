@@ -36,7 +36,7 @@ class _ErrorRecoveryPageState extends State<ErrorRecoveryPage> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.red[400]!.withOpacity(0.3),
+                      color: Colors.red[400]!.withValues(alpha: 0.3),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
@@ -140,7 +140,7 @@ class _ErrorRecoveryPageState extends State<ErrorRecoveryPage> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.blue[400]!.withOpacity(0.4),
+                          color: Colors.blue[400]!.withValues(alpha: 0.4),
                           blurRadius: 16,
                           offset: const Offset(0, 8),
                         ),

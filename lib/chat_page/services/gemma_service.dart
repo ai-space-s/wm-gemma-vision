@@ -1,305 +1,157 @@
 // lib/chat_page/services/gemma_service.dart
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart'; // kIsWeb
-import 'package:flutter_gemma/flutter_gemma.dart';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/message_models.dart';
 import '../../download_page/config/constants.dart';
 
-/// Singleton service for Google's Gemma AI model
+enum MlcBackend { cpu, gpu }
+
+/// Singleton service for Gemma 4 through the native Android runtime.
 class GemmaService {
   GemmaService._internal();
   static final GemmaService instance = GemmaService._internal();
 
-  final _gemma = FlutterGemmaPlugin.instance;
+  static const MethodChannel _channel = MethodChannel(
+    'com.tommasogiovannini.gemma/mlc',
+  );
+  static const EventChannel _streamChannel = EventChannel(
+    'com.tommasogiovannini.gemma/mlc_stream',
+  );
 
-  InferenceModel? _mainModel;
-  InferenceChat? _mainChat;
-
-  InferenceModel? _funcModel;
-  InferenceChat? _funcChat;
+  StreamSubscription<dynamic>? _streamSubscription;
+  final Map<String, _PendingGeneration> _pending = {};
 
   bool _initialised = false;
-  String? _activeModelPath;
-
   bool _isModelLoading = false;
   String? _loadingError;
+  String? _modelPath;
+  MlcBackend _backend = MlcBackend.gpu;
 
-  String _getWebModelUrl(String fileName) {
-    return Uri.base.removeFragment().resolve('models/$fileName').toString();
-  }
+  Future<void> init(MlcBackend backend) async {
+    if (_initialised && _backend == backend) return;
+    _backend = backend;
+    _isModelLoading = true;
+    _loadingError = null;
 
-  /// Initialize models at startup
-  Future<void> init(PreferredBackend backend) async {
-    if (_initialised) return;
+    try {
+      _modelPath = await _getMainModelPath();
+      if (kIsWeb) {
+        throw UnsupportedError(
+          'Gemma 4 web runtime is not wired for Flutter Web.',
+        );
+      }
 
-    String mainPath;
-    if (kIsWeb) {
-      mainPath = _getWebModelUrl(modelName);
-      print("🌐 Running on Web: Using static URL '$mainPath'");
-    } else {
-      final dir = await getApplicationDocumentsDirectory();
-      mainPath = '${dir.path}/$modelName';
-    }
+      final modelFile = File(_modelPath!);
+      final modelDir = Directory(_modelPath!);
+      if (!await modelFile.exists() && !await modelDir.exists()) {
+        throw Exception('Gemma 4 model artifact missing: $_modelPath');
+      }
 
-    if (kIsWeb) {
-      _isModelLoading = true;
-      _loadMainModel(mainPath, backend: backend).then((_) {
-        _isModelLoading = false;
-        print("✅ Web Model Background Load Completed!");
-      }).catchError((e) {
-        _isModelLoading = false;
-        _loadingError = e.toString();
-        print("🔥 Web Model Background Load Failed: $e");
+      await _ensureStreamSubscription();
+      await _channel.invokeMethod('initialize', {
+        'modelPath': _modelPath,
+        'modelLib': androidModelRuntimeLib,
+        'runtime': modelRuntime,
+        'backend': backend.name,
       });
+
       _initialised = true;
-    } else {
-      await _loadMainModel(mainPath, backend: backend);
-      _initialised = true;
-    }
-  }
-
-  int _getRandomSeed() => DateTime.now().millisecondsSinceEpoch;
-
-  /// Load Main Model (Vision supported)
-  Future<void> _loadMainModel(
-      String modelPath, {
-        PreferredBackend backend = PreferredBackend.gpu,
-      }) async {
-    if (_activeModelPath == modelPath && _mainChat != null) return;
-
-    try {
-      print("🔄 Switching to Main Gemma model: $modelPath");
-
-      _funcChat = null;
-      _funcModel = null;
-
-      if (kIsWeb) {
-        await FlutterGemma.installModel(
-          modelType: ModelType.gemmaIt,
-        ).fromNetwork(modelPath).install();
-
-        _mainModel = await FlutterGemma.getActiveModel(
-          preferredBackend: backend,
-          maxTokens: 2048,
-          maxNumImages: 1,
-        );
-      } else {
-        if (!File(modelPath).existsSync()) {
-          throw Exception("Main model file missing: $modelPath");
-        }
-
-        await _gemma.modelManager.setModelPath(modelPath);
-
-        _mainModel = await _gemma.createModel(
-          preferredBackend: backend,
-          modelType: ModelType.gemmaIt,
-          supportImage: true,
-          maxTokens: 2048,
-          maxNumImages: 1,
-        );
-      }
-
-      _mainChat = await _mainModel!.createChat(
-        randomSeed: _getRandomSeed(),
-        temperature: 1.0,
-        topK: 64,
-        topP: 0.95,
-        supportImage: true,
-        tokenBuffer: 512,
-      );
-
-      _activeModelPath = modelPath;
-      print("✅ Main Model Loaded!");
     } catch (e) {
-      print("🔥 Failed to load main model: $e");
-      _activeModelPath = null;
+      _loadingError = e.toString();
+      _initialised = false;
       rethrow;
+    } finally {
+      _isModelLoading = false;
     }
   }
 
-  Future<void> _loadFunctionModel(
-      String modelPath, {
-        PreferredBackend backend = PreferredBackend.gpu,
-      }) async {
-    if (_activeModelPath == modelPath && _funcChat != null) return;
-
-    try {
-      print("🔄 Switching to Function Gemma model: $modelPath");
-
-      _mainChat = null;
-      _mainModel = null;
-
-      if (kIsWeb) {
-        await FlutterGemma.installModel(
-          modelType: ModelType.gemmaIt,
-        ).fromNetwork(modelPath).install();
-
-        _funcModel = await FlutterGemma.getActiveModel(
-          preferredBackend: backend,
-          maxTokens: 1024,
-          maxNumImages: 0,
-        );
-      } else {
-        await _gemma.modelManager.setModelPath(modelPath);
-
-        _funcModel = await _gemma.createModel(
-          preferredBackend: backend,
-          modelType: ModelType.gemmaIt,
-          supportImage: false,
-          maxTokens: 1024,
-          maxNumImages: 0,
-        );
-      }
-
-      _funcChat = await _funcModel!.createChat(
-        randomSeed: _getRandomSeed(),
-        temperature: 0.0,
-        topK: 1,
-        topP: 1.0,
-        supportImage: false,
-        tokenBuffer: 512,
-      );
-
-      _activeModelPath = modelPath;
-      print("✅ Function Model Loaded!");
-    } catch (e) {
-      print("🔥 Failed to load function model: $e");
-      _activeModelPath = null;
-    }
+  Future<void> _ensureStreamSubscription() async {
+    _streamSubscription ??= _streamChannel.receiveBroadcastStream().listen(
+      _handleStreamEvent,
+      onError: (Object error) {
+        for (final pending in _pending.values) {
+          pending.completeError(error);
+        }
+        _pending.clear();
+      },
+    );
   }
 
-  Future<void> ensureFunctionModelLoaded() async {
-    final path = await _getFuncModelPath();
-    if (kIsWeb) {
-      await _loadFunctionModel(path);
-    } else {
-      if (await File(path).exists()) {
-        await _loadFunctionModel(path);
-      }
+  void _handleStreamEvent(dynamic event) {
+    if (event is! Map) return;
+    final requestId = event['requestId']?.toString();
+    if (requestId == null) return;
+
+    final pending = _pending[requestId];
+    if (pending == null) return;
+
+    final error = event['error']?.toString();
+    if (error != null && error.isNotEmpty) {
+      _pending.remove(requestId);
+      pending.completeError(Exception(error));
+      return;
+    }
+
+    final token = event['token']?.toString();
+    if (token != null && token.isNotEmpty) {
+      pending.addToken(token);
+    }
+
+    final done = event['done'] == true;
+    if (done) {
+      _pending.remove(requestId);
+      pending.complete();
     }
   }
 
   Future<String> _getMainModelPath() async {
-    if (kIsWeb) return _getWebModelUrl(modelName);
+    if (kIsWeb) {
+      return Uri.base.removeFragment().resolve('models/$modelName').toString();
+    }
     final dir = await getApplicationDocumentsDirectory();
     return '${dir.path}/$modelName';
   }
 
-  Future<String> _getFuncModelPath() async {
-    if (kIsWeb) return _getWebModelUrl(functionModelName);
-    final dir = await getApplicationDocumentsDirectory();
-    return '${dir.path}/$functionModelName';
+  Future<void> _ensureInitialised() async {
+    if (_initialised) return;
+    if (_isModelLoading) {
+      throw Exception('모델을 로딩 중입니다. 잠시 후 다시 시도해주세요.');
+    }
+    if (_loadingError != null) {
+      throw Exception('모델 로드 실패: $_loadingError');
+    }
+    await init(_backend);
   }
 
-  /// [NEW] Generates a response using a temporary chat session.
-  /// This prevents polluting the main chat history with router/logic prompts.
-  /// Supports both Function Model and Main Model.
-  Future<String> generateWithTemporarySession(String prompt, {bool useFunctionModel = false}) async {
-    // 1. Ensure the required model is loaded
-    if (useFunctionModel) {
-      if (_funcModel == null) await ensureFunctionModelLoaded();
-      if (_funcModel == null) return ""; // Failed to load
-    } else {
-      if (_mainModel == null) {
-        // Force load main model if missing
-        final path = await _getMainModelPath();
-        await _loadMainModel(path);
-      }
-      if (_mainModel == null) return "";
-    }
+  int _seed() => DateTime.now().millisecondsSinceEpoch;
 
-    final model = useFunctionModel ? _funcModel! : _mainModel!;
-
-    // 2. Create a temporary chat (stateless)
-    // Temperature 0.0 is best for logic/routing/JSON generation
-    InferenceChat? tempChat;
-    try {
-      tempChat = await model.createChat(
-        randomSeed: _getRandomSeed(),
-        temperature: 0.0,
-        topK: 1,
-        topP: 1.0,
-        supportImage: useFunctionModel ? false : true,
-        tokenBuffer: 512,
-      );
-
-      final responseBuffer = StringBuffer();
-      final completer = Completer<String>();
-
-      await tempChat.addQuery(Message.text(text: prompt, isUser: true));
-
-      tempChat.generateChatResponseAsync().listen(
-            (ModelResponse res) {
-          if (res is TextResponse) {
-            responseBuffer.write(res.token);
-          }
-        },
-        onDone: () {
-          if (!completer.isCompleted) {
-            completer.complete(responseBuffer.toString());
-          }
-        },
-        onError: (error) {
-          if (!completer.isCompleted) {
-            completer.completeError(error);
-          }
-        },
-      );
-
-      return await completer.future;
-    } catch (e) {
-      print("Error in temporary generation: $e");
-      return "";
-    }
-    // Note: InferenceChat in FlutterGemma currently doesn't have an explicit dispose method,
-    // but letting it go out of scope allows GC to reclaim it.
+  Future<String> generateWithTemporarySession(String prompt) async {
+    final buffer = StringBuffer();
+    await _generate(
+      prompt: prompt,
+      temperature: 0.0,
+      topP: 1.0,
+      maxTokens: 512,
+      onToken: buffer.write,
+    );
+    return buffer.toString();
   }
 
   Future<String> generateRawResponse(String prompt) async {
-    if (_mainChat == null && _funcChat == null) {
-      if (kIsWeb) {
-        if (_isModelLoading) return "Error: Model is still downloading...";
-        if (_loadingError != null) return "Error: Model load failed: $_loadingError";
-      }
-      final path = await _getMainModelPath();
-      await _loadMainModel(path);
-    }
-
-    final chat = _mainChat ?? _funcChat;
-    if (chat == null) return "";
-
-    final responseBuffer = StringBuffer();
-    final completer = Completer<String>();
-
-    try {
-      await chat.addQuery(Message.text(text: prompt, isUser: true));
-
-      chat.generateChatResponseAsync().listen(
-            (ModelResponse res) {
-          if (res is TextResponse) {
-            responseBuffer.write(res.token);
-          }
-        },
-        onDone: () {
-          if (!completer.isCompleted) {
-            completer.complete(responseBuffer.toString());
-          }
-        },
-        onError: (error) {
-          if (!completer.isCompleted) {
-            completer.completeError(error);
-          }
-        },
-      );
-
-      return await completer.future;
-    } catch (e) {
-      print("Error in raw generation: $e");
-      return "";
-    }
+    final buffer = StringBuffer();
+    await _generate(
+      prompt: prompt,
+      temperature: 1.0,
+      topP: 0.95,
+      maxTokens: 2048,
+      onToken: buffer.write,
+    );
+    return buffer.toString();
   }
 
   Future<void> sendWithStreaming({
@@ -308,108 +160,102 @@ class GemmaService {
     Function(String)? onToken,
     required Function(MessageStats) onComplete,
   }) async {
-    if (_mainChat == null) {
-      if (kIsWeb) {
-        if (_isModelLoading) {
-          throw Exception("모델을 다운로드 중입니다(3GB). 잠시 후 다시 시도해주세요.");
-        }
-        if (_loadingError != null) {
-          throw Exception("모델 로드 실패: $_loadingError");
-        }
-      }
-
-      final path = await _getMainModelPath();
-      await _loadMainModel(path);
-    }
-
-    if (_mainChat == null) throw Exception('Main Chat could not be initialized');
-
     final startTime = DateTime.now();
     DateTime? firstTokenTime;
-    int tokenCount = 0;
-    final responseBuffer = StringBuffer();
+    var tokenCount = 0;
 
-    final completer = Completer<void>();
+    await _generate(
+      prompt: text,
+      imagePath: image?.path,
+      temperature: 1.0,
+      topP: 0.95,
+      maxTokens: 2048,
+      onToken: (token) {
+        firstTokenTime ??= DateTime.now();
+        tokenCount++;
+        onToken?.call(token);
+      },
+    );
+
+    final endTime = DateTime.now();
+    onComplete(
+      MessageStats(
+        timeToFirstToken: firstTokenTime != null
+            ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0
+            : null,
+        totalLatency: endTime.difference(startTime).inMilliseconds / 1000.0,
+        tokenCount: tokenCount,
+      ),
+    );
+  }
+
+  Future<void> _generate({
+    required String prompt,
+    String? imagePath,
+    required double temperature,
+    required double topP,
+    required int maxTokens,
+    required void Function(String token) onToken,
+  }) async {
+    await _ensureInitialised();
+    await _ensureStreamSubscription();
+
+    final requestId = 'mlc-${DateTime.now().microsecondsSinceEpoch}';
+    final pending = _PendingGeneration(onToken);
+    _pending[requestId] = pending;
 
     try {
-      if (image != null && !kIsWeb) {
-        final bytes = await image.readAsBytes();
-        await _mainChat!.addQuery(
-          Message.withImage(text: text, imageBytes: bytes, isUser: true),
-        );
-      } else {
-        await _mainChat!.addQuery(Message.text(text: text, isUser: true));
-      }
-
-      bool streamStarted = false;
-
-      _mainChat!.generateChatResponseAsync().listen(
-            (ModelResponse res) {
-          if (!streamStarted) streamStarted = true;
-
-          if (res is TextResponse) {
-            firstTokenTime ??= DateTime.now();
-            tokenCount++;
-            responseBuffer.write(res.token);
-            onToken?.call(res.token);
-          }
-        },
-        onDone: () {
-          if (completer.isCompleted) return;
-
-          final endTime = DateTime.now();
-          final stats = MessageStats(
-            timeToFirstToken: firstTokenTime != null
-                ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0
-                : null,
-            totalLatency: endTime.difference(startTime).inMilliseconds / 1000.0,
-            tokenCount: tokenCount,
-          );
-          onComplete(stats);
-          completer.complete();
-        },
-        onError: (error) {
-          if (!completer.isCompleted) {
-            completer.completeError(error);
-          }
-        },
-      );
-
-      await completer.future;
+      await _channel.invokeMethod('generate', {
+        'requestId': requestId,
+        'prompt': prompt,
+        if (imagePath != null && imagePath.isNotEmpty) 'imagePath': imagePath,
+        'temperature': temperature,
+        'topP': topP,
+        'maxTokens': maxTokens,
+        'seed': _seed(),
+      });
+      await pending.future;
     } catch (e) {
-      print("Error in sendWithStreaming: $e");
+      _pending.remove(requestId);
       rethrow;
     }
   }
 
-  /// [Deprecated] Use generateWithTemporarySession or generateRawResponse
-  Future<String> generateFunctionResponse(String prompt) async {
-    if (_funcChat == null) {
-      await ensureFunctionModelLoaded();
-    }
-    if (_funcChat == null) return "";
-    await _funcChat!.clearHistory();
-    // Re-use logic... simplified to just call chat logic
-    // But since we have generateWithTemporarySession, this is less critical.
-    // Keeping basic implementation for compatibility if needed.
-    return generateRawResponse(prompt);
-  }
-
   Future<void> resetChatSession() async {
-    if (_mainChat != null) {
-      await _mainChat!.clearHistory();
-    }
-    if (_funcChat != null) {
-      await _funcChat!.clearHistory();
-    }
+    if (!_initialised) return;
+    await _channel.invokeMethod('reset');
   }
 
   Future<void> dispose() async {
-    _mainModel = null;
-    _mainChat = null;
-    _funcModel = null;
-    _funcChat = null;
-    _activeModelPath = null;
+    for (final pending in _pending.values) {
+      pending.completeError(StateError('GemmaService disposed'));
+    }
+    _pending.clear();
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
+    if (_initialised) {
+      await _channel.invokeMethod('dispose');
+    }
     _initialised = false;
+    _modelPath = null;
+  }
+}
+
+class _PendingGeneration {
+  _PendingGeneration(this._onToken);
+
+  final void Function(String token) _onToken;
+  final Completer<void> _completer = Completer<void>();
+
+  Future<void> get future => _completer.future;
+
+  void addToken(String token) => _onToken(token);
+
+  void complete() {
+    if (!_completer.isCompleted) _completer.complete();
+  }
+
+  void completeError(Object error) {
+    if (!_completer.isCompleted) _completer.completeError(error);
   }
 }

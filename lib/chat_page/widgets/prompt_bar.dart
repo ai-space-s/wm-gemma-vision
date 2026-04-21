@@ -180,7 +180,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
         border: Border.all(color: Colors.grey.shade200, width: 2),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -270,7 +270,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: gradientColors.first.withOpacity(0.3),
+                    color: gradientColors.first.withValues(alpha: 0.3),
                     blurRadius: 12,
                     offset: const Offset(0, 6),
                   ),
@@ -356,7 +356,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: gradientColors.first.withOpacity(0.3),
+                    color: gradientColors.first.withValues(alpha: 0.3),
                     blurRadius: 12,
                     offset: const Offset(0, 6),
                   ),
@@ -469,15 +469,15 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                     // Show clear button when text is present
                     suffixIcon: hasText
                         ? IconButton(
-                      onPressed: () {
-                        _ctrl.clear();
-                        setState(() {});
-                      },
-                      icon: Icon(
-                        Icons.clear_rounded,
-                        color: Colors.grey.shade500,
-                      ),
-                    )
+                            onPressed: () {
+                              _ctrl.clear();
+                              setState(() {});
+                            },
+                            icon: Icon(
+                              Icons.clear_rounded,
+                              color: Colors.grey.shade500,
+                            ),
+                          )
                         : null,
                   ),
                   // Enter key sends message with camera
@@ -493,9 +493,7 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
               children: [
                 if (widget.speechEnabled)
                   _buildModernButton(
-                    label: widget.listening
-                        ? 'Stop Voice'
-                        : 'Start Voice',
+                    label: widget.listening ? 'Stop Voice' : 'Start Voice',
                     hint: widget.listening
                         ? 'Double-tap to stop recording'
                         : 'Double-tap to start recording',
@@ -536,8 +534,9 @@ class PromptBarState extends State<PromptBar> with TickerProviderStateMixin {
                   hint: hasText
                       ? 'Double-tap to choose photo from gallery'
                       : 'Type a message first',
-                  onPressed:
-                  hasText ? () => _sendWithGallery(_ctrl.text) : null,
+                  onPressed: hasText
+                      ? () => _sendWithGallery(_ctrl.text)
+                      : null,
                   icon: Icons.photo_library_rounded,
                   gradientColors: [
                     Colors.orange.shade400,

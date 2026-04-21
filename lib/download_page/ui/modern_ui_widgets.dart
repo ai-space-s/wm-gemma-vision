@@ -6,9 +6,9 @@ import '../models/models.dart';
 
 class ModernUIWidgets {
   static Widget buildDownloadIcon(
-      DownloadStatus status,
-      DownloadProgress? progress,
-      ) {
+    DownloadStatus status,
+    DownloadProgress? progress,
+  ) {
     IconData icon;
     Color color;
     bool animate = false;
@@ -57,7 +57,7 @@ class ModernUIWidgets {
       height: 120,
       width: 120,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         shape: BoxShape.circle,
       ),
       child: animate
@@ -67,10 +67,10 @@ class ModernUIWidgets {
   }
 
   static Widget buildStatusMessage(
-      DownloadStatus status,
-      DownloadProgress? progress,
-      List<String> errorMessages,
-      ) {
+    DownloadStatus status,
+    DownloadProgress? progress,
+    List<String> errorMessages,
+  ) {
     String title;
     String subtitle;
 
@@ -131,10 +131,7 @@ class ModernUIWidgets {
         const SizedBox(height: 8),
         Text(
           subtitle,
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.grey[600],
-          ),
+          style: TextStyle(fontSize: 16, color: Colors.grey[600]),
           textAlign: TextAlign.center,
         ),
       ],
@@ -142,9 +139,9 @@ class ModernUIWidgets {
   }
 
   static Widget buildProgressBar(
-      DownloadProgress? progress,
-      DownloadStatus status,
-      ) {
+    DownloadProgress? progress,
+    DownloadStatus status,
+  ) {
     if (status == DownloadStatus.notStarted ||
         status == DownloadStatus.completed ||
         status == DownloadStatus.failed ||
@@ -185,15 +182,15 @@ class ModernUIWidgets {
   }
 
   static Widget buildActionButtons(
-      DownloadStatus status,
-      VoidCallback onStart,
-      VoidCallback onPause,
-      VoidCallback onResume,
-      VoidCallback onCancel,
-      VoidCallback onContinue, {
-        VoidCallback? onRetryLoad, // [추가] 로드 재시도 콜백
-        VoidCallback? onReCopy,    // [추가] 복사 재시도 콜백
-      }) {
+    DownloadStatus status,
+    VoidCallback onStart,
+    VoidCallback onPause,
+    VoidCallback onResume,
+    VoidCallback onCancel,
+    VoidCallback onContinue, {
+    VoidCallback? onRetryLoad, // [추가] 로드 재시도 콜백
+    VoidCallback? onReCopy, // [추가] 복사 재시도 콜백
+  }) {
     switch (status) {
       case DownloadStatus.notStarted:
         return _buildButton('Start Download', onStart);
@@ -230,7 +227,7 @@ class ModernUIWidgets {
         return const SizedBox.shrink();
 
       case DownloadStatus.failed:
-      // [수정] 실패 시 여러 복구 옵션 제공
+        // [수정] 실패 시 여러 복구 옵션 제공
         return Column(
           children: [
             _buildButton('Retry Download', onStart), // 기존: 삭제 후 재다운로드
@@ -250,11 +247,11 @@ class ModernUIWidgets {
   }
 
   static Widget _buildButton(
-      String label,
-      VoidCallback onPressed, {
-        bool isSecondary = false,
-        bool isDestructive = false,
-      }) {
+    String label,
+    VoidCallback onPressed, {
+    bool isSecondary = false,
+    bool isDestructive = false,
+  }) {
     Color bgColor;
     Color textColor;
 
@@ -312,10 +309,10 @@ class ModernUIWidgets {
 
   // (BottomSheet 코드는 변경 없음, 생략 가능하지만 전체 코드 요청이므로 포함하거나 유지)
   static Widget buildLicenseBottomSheet(
-      BuildContext context,
-      VoidCallback onCancel,
-      VoidCallback onOpenBrowser,
-      ) {
+    BuildContext context,
+    VoidCallback onCancel,
+    VoidCallback onOpenBrowser,
+  ) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: const BoxDecoration(
@@ -341,15 +338,14 @@ class ModernUIWidgets {
             onPressed: onOpenBrowser,
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
             child: const Text('View License on HuggingFace'),
           ),
           const SizedBox(height: 12),
-          TextButton(
-            onPressed: onCancel,
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: onCancel, child: const Text('Cancel')),
         ],
       ),
     );
@@ -378,9 +374,10 @@ class _PulsingIconState extends State<_PulsingIcon>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.8, end: 1.2).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.8,
+      end: 1.2,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override

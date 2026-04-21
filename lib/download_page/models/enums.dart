@@ -23,5 +23,4 @@ enum TokenStatus {
 /// Enum to identify download target
 enum DownloadTarget {
   mainModel,
-  functionModel,
 }

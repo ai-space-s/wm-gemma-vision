@@ -4,11 +4,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:flutter_gemma/pigeon.g.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/prompt_bar.dart';
 import 'services/bootstrap_manager.dart';
 import 'services/chat_helpers.dart';
+import 'services/gemma_service.dart';
 import 'services/speech_service.dart';
 import 'services/streaming_tts_service.dart';
 import 'services/text_recognition_service.dart';
@@ -46,7 +46,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   TextRecognitionService? _textRecognition;
 
   String _systemCtx = SystemPrompts.defaultSystemContext;
-  PreferredBackend _backend = PreferredBackend.cpu;
+  MlcBackend _backend = MlcBackend.gpu;
 
   final _promptBarKey = GlobalKey<PromptBarState>();
   bool _initialising = true;
@@ -86,8 +86,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
       // 백엔드 설정 로드
       final backendIndex = prefs.getInt('backendIndex');
-      if (backendIndex != null && backendIndex >= 0 && backendIndex < PreferredBackend.values.length) {
-        _backend = PreferredBackend.values[backendIndex];
+      if (backendIndex != null &&
+          backendIndex >= 0 &&
+          backendIndex < MlcBackend.values.length) {
+        _backend = MlcBackend.values[backendIndex];
       }
     });
   }
@@ -328,11 +330,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       const Expanded(child: SizedBox()),
                     ChatUIBuilder.buildPromptBarContainer(
                       promptBarKey: _promptBarKey,
-                      onPromptWithCamera: _captureWithCamera,  // [연결]
-                      onPromptWithGallery: _pickFromGallery,   // [연결]
+                      onPromptWithCamera: _captureWithCamera, // [연결]
+                      onPromptWithGallery: _pickFromGallery, // [연결]
                       onPromptTextOnly: _sendTextOnly,
                       disabled:
-                      _chatHelpers!.resetting || _chatHelpers!.isGenerating,
+                          _chatHelpers!.resetting || _chatHelpers!.isGenerating,
                       speechEnabled: _speechService!.speechEnabled,
                       listening: _speechService!.listening,
                       onToggleListening: _speechService!.toggleDictation,
@@ -375,7 +377,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
         // 백엔드가 변경되었다면 리부트스트랩
         if (result != null) {
-          final newBackend = result['backend'] as PreferredBackend?;
+          final newBackend = result['backend'] as MlcBackend?;
           if (newBackend != null && _backend != newBackend) {
             _backend = newBackend;
             _saveSettings(); // 백엔드 설정 저장
@@ -402,7 +404,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   void _showSnackBar(String message) {
     if (!mounted || _disposed) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _saveChat() async {
@@ -499,9 +503,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         title: const Text('Save chat as'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Enter a chat name',
-          ),
+          decoration: const InputDecoration(hintText: 'Enter a chat name'),
         ),
         actions: [
           TextButton(
@@ -511,7 +513,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           TextButton(
             onPressed: () {
               final name = controller.text.trim();
-              Navigator.of(context).pop(name.isEmpty ? _defaultChatName() : name);
+              Navigator.of(
+                context,
+              ).pop(name.isEmpty ? _defaultChatName() : name);
             },
             child: const Text('Save'),
           ),
@@ -542,9 +546,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     return result ?? false;
   }
 
-  Future<ChatSaveInfo?> _showChatListDialog(
-      List<ChatSaveInfo> saves,
-      ) async {
+  Future<ChatSaveInfo?> _showChatListDialog(List<ChatSaveInfo> saves) async {
     return showDialog<ChatSaveInfo>(
       context: context,
       builder: (context) => AlertDialog(
@@ -554,7 +556,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           child: ListView.separated(
             shrinkWrap: true,
             itemCount: saves.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, separatorIndex) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final item = saves[index];
               final date = item.updatedAt.toLocal();

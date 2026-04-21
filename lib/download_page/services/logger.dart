@@ -1,6 +1,7 @@
 // download_page/services/logger.dart
 
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../models/models.dart';
 
 class Logger {
@@ -27,7 +28,7 @@ class Logger {
     );
     _logs.add(entry);
     _logController.add(entry); // Notify UI listeners
-    print('[$level] $message'); // Also print to console
+    debugPrint('[$level] $message'); // Also print to console
   }
 
   /// Formats all logs as a single string for copying/sharing

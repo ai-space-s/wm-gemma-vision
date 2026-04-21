@@ -77,7 +77,7 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
 
   Future<void> _checkDownloadState() async {
     // 기존 로직: 진행 중인 다운로드나 파일 존재 여부 확인
-    await _logic.checkForOngoingDownloads(context);
+    await _logic.checkForOngoingDownloads();
 
     // [추가] 모델이 이미 존재하여 'completed' 상태가 되었다면 자동으로 스킵
     if (_downloadStatus == DownloadStatus.completed && mounted) {
@@ -92,38 +92,18 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
   void _handleNavigation(bool success) {
     if (!mounted) return;
 
-    if (widget.target == DownloadTarget.mainModel) {
-      if (success) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const ChatPage()),
-        );
-      }
-    } else {
-      // For FunctionGemma, we return to Settings Page with result
-      Navigator.of(context).pop(success);
+    if (success) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ChatPage()),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.target == DownloadTarget.mainModel
-        ? "Gemma Vision Model"
-        : "Function Calling Model";
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: widget.target == DownloadTarget.functionModel
-          ? AppBar(
-        title: Text(title),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black),
-          onPressed: () =>
-              Navigator.of(context).pop(false), // 취소 시 false 반환
-        ),
-      )
-          : null, // Main model usually shows as full screen splash
+      appBar: null,
       body: SafeArea(
         child: Stack(
           children: [
@@ -171,11 +151,11 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
 
                       ModernUIWidgets.buildActionButtons(
                         _downloadStatus,
-                            () => _logic.startDownload(),
-                            () => _logic.pauseDownload(),
-                            () => _logic.resumeDownload(),
-                            () => _logic.showCancelConfirmation(context),
-                            () => _handleNavigation(true), // Success callback
+                        () => _logic.startDownload(),
+                        () => _logic.pauseDownload(),
+                        () => _logic.resumeDownload(),
+                        () => _logic.showCancelConfirmation(context),
+                        () => _handleNavigation(true), // Success callback
                       ),
                     ],
                   ),
@@ -207,17 +187,17 @@ class _ModelDownloadPageState extends State<ModelDownloadPage> {
             ),
             ModernUIWidgets.buildLogsButton(
               context,
-                  () => UIHelpers.showLogsDialog(context),
+              () => UIHelpers.showLogsDialog(context),
             ),
           ],
         ),
       ),
       bottomSheet: _showAgreementSheet
           ? ModernUIWidgets.buildLicenseBottomSheet(
-        context,
-            () => _logic.cancelLicenseAgreement(),
-            () => _logic.openLicenseAgreement(),
-      )
+              context,
+              () => _logic.cancelLicenseAgreement(),
+              () => _logic.openLicenseAgreement(),
+            )
           : null,
     );
   }
