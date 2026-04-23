@@ -16,15 +16,12 @@ try:
         configure_security,
         csrf_required,
         csrf_token,
-        current_user_id,
         login_required,
         start_admin_session,
-        user_store,
         verify_login,
     )
     from date_utils import parse_iso_date
     from storage import LunchMenuStore
-    from user_store import UserStoreError
     from xlsx_importer import XlsxExtractionError, parse_xlsx_meal_menus
 except ImportError:
     from auth import (
@@ -32,15 +29,12 @@ except ImportError:
         configure_security,
         csrf_required,
         csrf_token,
-        current_user_id,
         login_required,
         start_admin_session,
-        user_store,
         verify_login,
     )
     from date_utils import parse_iso_date
     from storage import LunchMenuStore
-    from user_store import UserStoreError
     from xlsx_importer import XlsxExtractionError, parse_xlsx_meal_menus
 
 
@@ -104,48 +98,6 @@ def create_app() -> Flask:
     @login_required
     def admin():
         return render_template("admin.html", csrf_token=csrf_token())
-
-    @app.get("/admin/users")
-    @login_required
-    def users_page():
-        return _render_users_page()
-
-    @app.post("/admin/users")
-    @login_required
-    @csrf_required
-    def create_user():
-        try:
-            user_store().create_user(
-                request.form.get("username", ""),
-                request.form.get("password", ""),
-            )
-            return redirect(url_for("users_page", status="created"))
-        except UserStoreError as exc:
-            return _render_users_page(error=str(exc)), 400
-
-    @app.post("/admin/users/<user_id>/password")
-    @login_required
-    @csrf_required
-    def change_user_password(user_id: str):
-        try:
-            user_store().change_password(user_id, request.form.get("password", ""))
-            return redirect(url_for("users_page", status="updated"))
-        except UserStoreError as exc:
-            return _render_users_page(error=str(exc)), 400
-
-    @app.post("/admin/users/<user_id>/delete")
-    @login_required
-    @csrf_required
-    def delete_user(user_id: str):
-        deleting_self = hmac.compare_digest(current_user_id(), user_id)
-        try:
-            user_store().delete_user(user_id)
-            if deleting_self:
-                clear_admin_session()
-                return redirect(url_for("login"))
-            return redirect(url_for("users_page", status="deleted"))
-        except UserStoreError as exc:
-            return _render_users_page(error=str(exc)), 400
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -304,19 +256,6 @@ def _safe_next_url(next_url: str) -> str:
     if next_url.startswith("/") and not next_url.startswith("//"):
         return next_url
     return url_for("admin")
-
-
-def _render_users_page(error: str = ""):
-    return render_template(
-        "users.html",
-        csrf_token=csrf_token(),
-        users=user_store().list_users(),
-        current_user_id=current_user_id(),
-        status=request.args.get("status", ""),
-        error=error,
-    )
-
-
 app = create_app()
 
 

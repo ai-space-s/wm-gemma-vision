@@ -274,7 +274,7 @@ class ChatHelpers {
       }
 
       final responseBuffer = StringBuffer();
-      int tokenCounter = 0;
+      final streamingEnabled = AppSettings.instance.streamingResponsesEnabled;
       final fullPrompt = _buildConversationPrompt(
         messages,
         enhancedPrompt,
@@ -288,21 +288,24 @@ class ChatHelpers {
         image: imageFile,
         onToken: (tok) {
           responseBuffer.write(tok);
-          tokenCounter++;
           final currentText = responseBuffer.toString();
-          _streamingTts.addText(tok, currentText);
-          if (tokenCounter % 3 == 0) {
+          if (streamingEnabled) {
+            _streamingTts.addText(tok, currentText);
             aiMsg.text = currentText;
             _onStateChanged();
           }
         },
         onComplete: (stats) async {
+          final finalText = responseBuffer.toString().trim();
           aiMsg
-            ..text = responseBuffer.toString().trim()
+            ..text = finalText
             ..isStreaming = false
             ..stats = stats;
           _isGenerating = false;
           _onStateChanged();
+          if (!streamingEnabled && finalText.isNotEmpty) {
+            _streamingTts.addText(finalText, finalText);
+          }
           await _streamingTts.onMessageComplete();
         },
       );
@@ -371,7 +374,7 @@ class ChatHelpers {
       await _streamingTts.startLoading();
 
       final responseBuffer = StringBuffer();
-      int tokenCounter = 0;
+      final streamingEnabled = AppSettings.instance.streamingResponsesEnabled;
 
       String fullPrompt;
       final trimmedPrompt = prompt.trim();
@@ -401,11 +404,10 @@ class ChatHelpers {
         text: fullPrompt,
         onToken: (tok) {
           responseBuffer.write(tok);
-          tokenCounter++;
           final currentText = responseBuffer.toString();
 
-          _streamingTts.addText(tok, currentText);
-          if (tokenCounter % 3 == 0) {
+          if (streamingEnabled) {
+            _streamingTts.addText(tok, currentText);
             currentAiMsg.text = currentText;
             _onStateChanged();
           }
@@ -419,6 +421,9 @@ class ChatHelpers {
 
           _isGenerating = false;
           _onStateChanged();
+          if (!streamingEnabled && finalText.isNotEmpty) {
+            _streamingTts.addText(finalText, finalText);
+          }
           await _streamingTts.onMessageComplete();
         },
       );

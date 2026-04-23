@@ -105,7 +105,7 @@ def _parse_sheet(
             else:
                 record["meals"][meal_key] = {
                     "hasMeal": False,
-                    "reason": f"식단표에 {label}이 없습니다.",
+                    "reason": "",
                     "reasonCode": "no_meal_in_sheet",
                     "menu": _empty_menu(),
                 }
@@ -231,7 +231,7 @@ def _last_matching(items: list[str], keywords: tuple[str, ...]) -> str:
 def _empty_meal() -> dict[str, Any]:
     return {
         "hasMeal": False,
-        "reason": "식단표에 식사가 없습니다.",
+        "reason": "",
         "reasonCode": "no_meal_in_sheet",
         "menu": _empty_menu(),
     }

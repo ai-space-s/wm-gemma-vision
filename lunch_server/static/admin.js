@@ -9,11 +9,14 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || 
 
 let pendingImportId = null;
 
+mealSelector.addEventListener("change", syncVisibleMealEditor);
+
 window.addEventListener("meal-date-selected", (event) => {
   const meals = event.detail.record?.meals || emptyMeals();
   for (const mealKey of mealKeys) {
     fillMealForm(mealKey, meals[mealKey] || emptyMeal());
   }
+  syncVisibleMealEditor();
 });
 
 form.addEventListener("submit", async (event) => {
@@ -149,6 +152,13 @@ function field(mealKey, suffix) {
   return document.getElementById(`${mealKey}${suffix}`);
 }
 
+function syncVisibleMealEditor() {
+  const selectedMeal = mealSelector.value;
+  for (const editor of document.querySelectorAll(".meal-editor")) {
+    editor.hidden = editor.dataset.meal !== selectedMeal;
+  }
+}
+
 function resetImportConfirm() {
   pendingImportId = null;
   importConfirm.hidden = true;
@@ -160,3 +170,5 @@ function lines(value) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
+
+syncVisibleMealEditor();

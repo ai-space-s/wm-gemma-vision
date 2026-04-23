@@ -12,6 +12,14 @@ class _Segment {
   _Segment(this.text, this.start);
 }
 
+class _SentenceChunk {
+  final String text;
+  final int start;
+  final int end;
+
+  _SentenceChunk(this.text, this.start, this.end);
+}
+
 /// Streaming TTS Service for reading AI responses as they're generated.
 class StreamingTtsService {
   final ValueNotifier<bool> isSpeaking = ValueNotifier<bool>(false);
@@ -174,12 +182,12 @@ class StreamingTtsService {
     final sentences = _findCompleteSentences(newContent);
     if (sentences.isEmpty) return;
 
-    int offset = _lastSpokenLength;
     for (final sentence in sentences) {
-      _pendingSegments.add(_Segment(sentence.trim(), offset));
-      offset += sentence.length;
+      _pendingSegments.add(
+        _Segment(sentence.text.trim(), _lastSpokenLength + sentence.start),
+      );
     }
-    _lastSpokenLength = offset;
+    _lastSpokenLength += sentences.last.end;
 
     if (!_isProcessing) {
       await _processNextSegment();
@@ -265,44 +273,14 @@ class StreamingTtsService {
     return cleaned.substring(_lastSpokenLength).trim();
   }
 
-  List<String> _findCompleteSentences(String text) {
-    final out = <String>[];
-
-    // 1. Full sentences
-    final endRx = RegExp(r'[.!?]+(?:\s+|$)');
+  List<_SentenceChunk> _findCompleteSentences(String text) {
+    final out = <_SentenceChunk>[];
+    final endRx = RegExp(r'''[.!?。！？]+(?:["')\]\}»”’]*)?(?:\s+|$)''');
     int last = 0;
     for (final m in endRx.allMatches(text)) {
       final chunk = text.substring(last, m.end).trim();
-      if (chunk.length > 2) out.add(chunk);
+      if (chunk.length > 2) out.add(_SentenceChunk(chunk, last, m.end));
       last = m.end;
-    }
-    if (out.isNotEmpty) return out;
-
-    // 2. Clause breaks
-    final breakRx = RegExp(
-      r'[,;:]\s+|\s+(?:and|but|or|however|therefore|meanwhile|also|then|next|first|second|finally|because|since|while|when|where|after|before)\s+',
-    );
-    last = 0;
-    for (final m in breakRx.allMatches(text)) {
-      final chunk = text.substring(last, m.end).trim();
-      if (chunk.length > 4) out.add(chunk);
-      last = m.end;
-    }
-    if (out.isNotEmpty) return out;
-
-    // 3. Word-count fallback
-    if (text.length > 8) {
-      final words = text.split(' ');
-      var buf = '';
-      for (final w in words) {
-        if (('$buf $w').trim().length <= 25) {
-          buf = [buf, w].where((s) => s.isNotEmpty).join(' ');
-        } else {
-          if (buf.isNotEmpty) out.add(buf);
-          buf = w;
-        }
-      }
-      if (buf.isNotEmpty) out.add(buf);
     }
     return out;
   }

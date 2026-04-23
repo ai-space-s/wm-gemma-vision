@@ -17,6 +17,7 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -25,6 +26,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 
 class MainActivity: FlutterActivity() {
@@ -246,8 +248,10 @@ class MainActivity: FlutterActivity() {
         }
 
         try {
-            val response = if (imagePath.isNullOrBlank()) {
-                conversation.sendMessage(prompt)
+            if (imagePath.isNullOrBlank()) {
+                streamGemmaResponse(requestId) { callback ->
+                    conversation.sendMessageAsync(prompt, callback)
+                }
             } else {
                 val imageFile = File(imagePath)
                 if (!imageFile.isFile) {
@@ -258,11 +262,10 @@ class MainActivity: FlutterActivity() {
                     Content.ImageFile(imageFile.canonicalPath),
                     Content.Text(prompt)
                 )
-                conversation.sendMessage(content)
+                streamGemmaResponse(requestId) { callback ->
+                    conversation.sendMessageAsync(content, callback)
+                }
             }
-
-            emitMlcTokenDelta(requestId, messageToText(response))
-            emitMlcDone(requestId)
         } catch (t: Throwable) {
             emitMlcError(requestId, t.message ?: "Gemma 4 generation failed.")
         }
@@ -278,8 +281,10 @@ class MainActivity: FlutterActivity() {
         var conversation: Conversation? = null
         try {
             conversation = engine.createConversation()
-            val response = if (imagePath.isNullOrBlank()) {
-                conversation.sendMessage(prompt)
+            if (imagePath.isNullOrBlank()) {
+                streamGemmaResponse(requestId) { callback ->
+                    conversation.sendMessageAsync(prompt, callback)
+                }
             } else {
                 val imageFile = File(imagePath)
                 if (!imageFile.isFile) {
@@ -290,11 +295,10 @@ class MainActivity: FlutterActivity() {
                     Content.ImageFile(imageFile.canonicalPath),
                     Content.Text(prompt)
                 )
-                conversation.sendMessage(content)
+                streamGemmaResponse(requestId) { callback ->
+                    conversation.sendMessageAsync(content, callback)
+                }
             }
-
-            emitMlcTokenDelta(requestId, messageToText(response))
-            emitMlcDone(requestId)
         } catch (t: Throwable) {
             emitMlcError(requestId, t.message ?: "Gemma 4 temporary generation failed.")
         } finally {
@@ -303,6 +307,49 @@ class MainActivity: FlutterActivity() {
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun streamGemmaResponse(requestId: String, start: (MessageCallback) -> Unit) {
+        val done = CountDownLatch(1)
+        var accumulatedText = ""
+
+        val callback = object : MessageCallback {
+            override fun onMessage(message: Message) {
+                val text = messageToText(message)
+                if (text.isEmpty()) {
+                    return
+                }
+
+                val delta = if (text.startsWith(accumulatedText)) {
+                    text.substring(accumulatedText.length)
+                } else {
+                    text
+                }
+
+                if (delta.isNotEmpty()) {
+                    emitMlcTokenDelta(requestId, delta)
+                }
+
+                accumulatedText = if (text.startsWith(accumulatedText)) {
+                    text
+                } else {
+                    accumulatedText + text
+                }
+            }
+
+            override fun onDone() {
+                emitMlcDone(requestId)
+                done.countDown()
+            }
+
+            override fun onError(t: Throwable) {
+                emitMlcError(requestId, t.message ?: "Gemma 4 generation failed.")
+                done.countDown()
+            }
+        }
+
+        start(callback)
+        done.await()
     }
 
     private fun getCurrentLocation(result: MethodChannel.Result) {

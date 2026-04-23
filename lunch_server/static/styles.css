@@ -326,6 +326,16 @@ h2 {
   font-weight: 700;
 }
 
+.meal-reason {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
 .menu-list {
   display: grid;
   gap: 8px;
@@ -358,6 +368,10 @@ h2 {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.meal-editor[hidden] {
+  display: none;
 }
 
 .meal-editor legend {
@@ -503,78 +517,13 @@ textarea:focus {
   margin-top: 22px;
 }
 
-.user-layout {
-  display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
-  gap: 22px;
-  align-items: start;
-}
-
-.user-panel {
-  padding: 22px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-}
-
-.user-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.user-row {
-  display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(180px, 260px) auto;
-  gap: 10px;
-  align-items: center;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
-}
-
-.user-row p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.current-badge {
-  display: inline-flex;
-  margin-left: 8px;
-  padding: 3px 7px;
-  border-radius: 8px;
-  background: #e9f5f3;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.inline-user-form {
-  display: flex;
-  gap: 8px;
-  margin: 0;
-}
-
-.inline-user-form input {
-  min-width: 0;
-}
-
-.secondary-button.neutral {
-  color: var(--ink);
-}
-
 @media (max-width: 900px) {
   .topbar {
     padding: 0 16px;
   }
 
   .calendar-layout,
-  .admin-layout,
-  .user-layout {
+  .admin-layout {
     grid-template-columns: 1fr;
   }
 
@@ -587,9 +536,6 @@ textarea:focus {
     padding: 8px;
   }
 
-  .user-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 560px) {

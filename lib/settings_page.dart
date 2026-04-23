@@ -31,12 +31,14 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _earconsEnabled;
   late bool _highContrastEnabled;
   late bool _toolCallingEnabled;
+  late bool _streamingResponsesEnabled;
   late AppFontSize _fontSize;
 
   late final bool _initialHapticsEnabled;
   late final bool _initialEarconsEnabled;
   late final bool _initialHighContrastEnabled;
   late final bool _initialToolCallingEnabled;
+  late final bool _initialStreamingResponsesEnabled;
   late final AppFontSize _initialFontSize;
 
   /// Platform detection for accessibility-specific features
@@ -68,12 +70,14 @@ class _SettingsPageState extends State<SettingsPage> {
     _earconsEnabled = settings.earconsEnabled;
     _highContrastEnabled = settings.highContrastEnabled;
     _toolCallingEnabled = settings.enableFunctionCalling;
+    _streamingResponsesEnabled = settings.streamingResponsesEnabled;
     _fontSize = settings.fontSize;
 
     _initialHapticsEnabled = _hapticsEnabled;
     _initialEarconsEnabled = _earconsEnabled;
     _initialHighContrastEnabled = _highContrastEnabled;
     _initialToolCallingEnabled = _toolCallingEnabled;
+    _initialStreamingResponsesEnabled = _streamingResponsesEnabled;
     _initialFontSize = _fontSize;
   }
 
@@ -93,6 +97,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _earconsEnabled != _initialEarconsEnabled ||
           _highContrastEnabled != _initialHighContrastEnabled ||
           _toolCallingEnabled != _initialToolCallingEnabled ||
+          _streamingResponsesEnabled != _initialStreamingResponsesEnabled ||
           _fontSize != _initialFontSize;
     });
   }
@@ -112,6 +117,7 @@ class _SettingsPageState extends State<SettingsPage> {
       earconsEnabled: _earconsEnabled,
       highContrastEnabled: _highContrastEnabled,
       enableFunctionCalling: _toolCallingEnabled,
+      streamingResponsesEnabled: _streamingResponsesEnabled,
       fontSize: _fontSize,
     );
     if (!mounted) return;
@@ -332,6 +338,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         _buildSectionHeader('Other', 'Additional settings'),
                       ),
                       const SizedBox(height: 16),
+                      _wrapFocus(_buildStreamingResponsesToggle()),
+                      const SizedBox(height: 12),
                       // [수정] 옵션 이름 및 설명 변경
                       _wrapFocus(_buildFunctionCallingToggle()),
                       const SizedBox(height: 12),
@@ -568,6 +576,18 @@ class _SettingsPageState extends State<SettingsPage> {
       value: _toolCallingEnabled,
       onChanged: (value) {
         setState(() => _toolCallingEnabled = value);
+        _refreshHasChanges();
+      },
+    );
+  }
+
+  Widget _buildStreamingResponsesToggle() {
+    return _buildToggleTile(
+      title: 'Stream responses',
+      subtitle: 'Show text as it is generated and read complete sentences.',
+      value: _streamingResponsesEnabled,
+      onChanged: (value) {
+        setState(() => _streamingResponsesEnabled = value);
         _refreshHasChanges();
       },
     );

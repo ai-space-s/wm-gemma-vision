@@ -19,7 +19,6 @@
         <a href="/">일반</a>
         <a href="/admin">관리자</a>
         {% if session.admin_authenticated %}
-        <a href="/admin/users">사용자</a>
         {% if csrf_token is defined %}
         <form action="{{ url_for('logout') }}" method="post" class="nav-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

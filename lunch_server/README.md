@@ -16,7 +16,6 @@ python app.py
 
 - `/` 일반 식단 달력
 - `/admin` 관리자 달력, 수동 편집, XLSX 가져오기
-- `/admin/users` 사용자 등록, 삭제, 비밀번호 변경
 - `/api/meals?date=YYYY-MM-DD&meal=all` 앱 연동용 JSON API
 - `/api/meals?date=YYYY-MM-DD&meal=breakfast`
 - `/api/meals?date=YYYY-MM-DD&meal=lunch`
@@ -32,6 +31,15 @@ https://demo.krestine.cc/api/meals?date=2026-04-21&meal=all
 브라우저에서 `https://demo.krestine.cc`로 접속하면 일반 페이지가 열리고, 관리자 페이지는 `https://demo.krestine.cc/admin`입니다. 오늘, 내일, 다음 주 월요일 같은 상대 날짜 해석은 Android 앱의 function call 단계에서 `YYYY-MM-DD`로 확정한 뒤 이 API를 호출해야 합니다.
 
 사용자는 모두 관리자 권한을 가집니다. 관리자 계정은 환경 변수 `LUNCH_ADMIN_USERNAME`과 `LUNCH_ADMIN_PASSWORD` 또는 `LUNCH_ADMIN_PASSWORD_HASH`로 초기 등록할 수 있습니다. 환경 변수가 없고 사용자가 하나도 없으면 첫 실행 때 `data/admin_initial_password.txt`에 임시 비밀번호가 생성됩니다. 사용자 ID는 서버 로컬 pepper로 HMAC-SHA256 해시 처리되어 `data/users.json`에 저장되고, 비밀번호는 Werkzeug password hash로 저장됩니다.
+
+관리자 계정은 온라인에서 관리하지 않습니다. 계정 추가, 비밀번호 변경, 삭제는 반드시 서버 데이터 디렉터리에 직접 접근할 수 있는 오프라인 환경에서 PyQt6 데스크톱 관리 도구로 수행합니다.
+
+```powershell
+cd lunch_server
+python admin_user_manager.py
+```
+
+다른 데이터 디렉터리를 쓰는 서버라면 앱 실행 전에 `LUNCH_SERVER_DATA_DIR`을 같은 경로로 지정하거나, 앱 상단의 Browse 버튼으로 해당 `data` 디렉터리를 선택합니다. 사용자명은 해시로만 저장되므로 관리 도구의 목록에는 실제 username 대신 fingerprint와 User ID가 표시됩니다.
 
 로그인 보안 설정은 필요하면 다음 환경 변수로 조정합니다.
 

@@ -112,7 +112,8 @@ async function selectDate(key) {
 }
 
 function renderDetail(payload) {
-  selectedDateLabel.textContent = payload.date || state.selectedDate || "";
+  const selectedDate = payload.date || state.selectedDate || "";
+  selectedDateLabel.textContent = selectedDate;
   menuItems.innerHTML = "";
 
   if (!payload.record && payload.status === "no_menu_info") {
@@ -126,18 +127,22 @@ function renderDetail(payload) {
 
   const meals = payload.record?.meals || payload.meals || emptyMeals();
   const selectedMeal = mealSelector.value;
-  menuItems.appendChild(renderMealBlock(selectedMeal, meals[selectedMeal] || emptyMeal()));
+  const selectedMealRecord = meals[selectedMeal] || emptyMeal();
+  menuItems.appendChild(renderMealBlock(selectedMeal, selectedMealRecord, selectedDate));
 
   if (payload.status === "no_menu_info") {
     menuStatus.textContent = "미등록";
   } else if (payload.status === "no_meal") {
-    menuStatus.textContent = payload.code === "weekend" ? "주말" : "식사 없음";
+    menuStatus.textContent =
+      payload.code === "weekend" || (isWeekendKey(selectedDate) && selectedMealRecord.hasMeal === false)
+        ? "주말"
+        : "식사 없음";
   } else {
     menuStatus.textContent = "";
   }
 }
 
-function renderMealBlock(mealKey, mealRecord) {
+function renderMealBlock(mealKey, mealRecord, dateKey) {
   const section = document.createElement("section");
   section.className = "meal-card";
 
@@ -145,8 +150,10 @@ function renderMealBlock(mealKey, mealRecord) {
   if (mealRecord.hasMeal === false || items.length === 0) {
     const empty = document.createElement("p");
     empty.className = "meal-empty";
-    empty.textContent = mealRecord.hasMeal === false ? "미제공" : "미등록";
+    empty.textContent =
+      mealRecord.hasMeal === false && isWeekendKey(dateKey) ? "주말" : mealRecord.hasMeal === false ? "미제공" : "미등록";
     section.appendChild(empty);
+    appendReasonIfVisible(section, mealRecord, dateKey);
     return section;
   }
 
@@ -158,6 +165,7 @@ function renderMealBlock(mealKey, mealRecord) {
     list.appendChild(li);
   }
   section.appendChild(list);
+  appendReasonIfVisible(section, mealRecord, dateKey);
   return section;
 }
 
@@ -174,8 +182,31 @@ function summarizeDay(record, date) {
   if (availableCount > 0) return { text: "일부 있음", kind: "partial" };
 
   const allExplicitlyClosed = mealKeys.every((mealKey) => meals[mealKey]?.hasMeal === false);
+  if (date.getDay() === 0 || date.getDay() === 6) return { text: "주말", kind: "closed" };
   if (allExplicitlyClosed) return { text: "미제공", kind: "closed" };
   return { text: "식사 없음", kind: "closed" };
+}
+
+function appendReasonIfVisible(section, mealRecord, dateKey) {
+  const reason = (mealRecord.reason || "").trim();
+  if (!reason) return;
+
+  const isWeekend = isWeekendKey(dateKey);
+  const shouldShow = (!isWeekend && mealRecord.hasMeal === false) || (isWeekend && mealHasContent(mealRecord));
+  if (!shouldShow) return;
+
+  const reasonElement = document.createElement("p");
+  reasonElement.className = "meal-reason";
+  reasonElement.textContent = reason;
+  section.appendChild(reasonElement);
+}
+
+function isWeekendKey(key) {
+  if (!key) return false;
+  const [year, month, day] = key.split("-").map(Number);
+  if (!year || !month || !day) return false;
+  const date = new Date(year, month - 1, day);
+  return date.getDay() === 0 || date.getDay() === 6;
 }
 
 function mealHasContent(mealRecord = {}) {

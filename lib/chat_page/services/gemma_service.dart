@@ -159,7 +159,7 @@ class GemmaService {
     required String text,
     File? image,
     Function(String)? onToken,
-    required Function(MessageStats) onComplete,
+    required FutureOr<void> Function(MessageStats) onComplete,
   }) async {
     final startTime = DateTime.now();
     DateTime? firstTokenTime;
@@ -179,7 +179,7 @@ class GemmaService {
     );
 
     final endTime = DateTime.now();
-    onComplete(
+    await onComplete(
       MessageStats(
         timeToFirstToken: firstTokenTime != null
             ? firstTokenTime!.difference(startTime).inMilliseconds / 1000.0

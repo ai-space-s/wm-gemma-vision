@@ -65,11 +65,12 @@ class LunchMenuStore:
             }
 
         if all(not meals[meal_key].get("hasMeal", True) for meal_key in MEAL_KEYS):
+            is_weekend = target_date.weekday() >= 5
             return {
                 "status": "no_meal",
-                "code": "closed",
+                "code": "weekend" if is_weekend else "closed",
                 "date": key,
-                "message": "미제공",
+                "message": "주말" if is_weekend else "미제공",
                 "record": record,
             }
 
@@ -140,14 +141,15 @@ class LunchMenuStore:
             }
 
         if not meal_record.get("hasMeal", True):
+            is_weekend = date.fromisoformat(key).weekday() >= 5
             return {
                 "status": "no_meal",
-                "code": meal_record.get("reasonCode") or "closed",
+                "code": "weekend" if is_weekend else meal_record.get("reasonCode") or "closed",
                 "date": key,
                 "meal": meal,
                 "mealLabel": MEAL_LABELS[meal],
                 "reason": meal_record.get("reason", ""),
-                "message": meal_record.get("reason") or "미제공",
+                "message": "주말" if is_weekend else meal_record.get("reason") or "미제공",
                 "record": record,
             }
 
@@ -210,7 +212,7 @@ def normalize_meal(payload: dict[str, Any]) -> dict[str, Any]:
     menu = payload.get("menu") or {}
     return {
         "hasMeal": bool(payload.get("hasMeal", payload.get("has_meal", True))),
-        "reason": _clean_text(payload.get("reason")),
+        "reason": _clean_reason(payload.get("reason")),
         "reasonCode": _clean_text(payload.get("reasonCode") or payload.get("reason_code")),
         "menu": normalize_menu(menu),
     }
@@ -266,6 +268,15 @@ def _clean_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _clean_reason(value: Any) -> str:
+    reason = _clean_text(value)
+    if reason == "식단표에 식사가 없습니다.":
+        return ""
+    if reason.startswith("식단표에 ") and reason.endswith("이 없습니다."):
+        return ""
+    return reason
 
 
 def _clean_list(value: Any) -> list[str]:
