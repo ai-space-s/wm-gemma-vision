@@ -196,7 +196,6 @@ def _menu_from_text(raw_text: str) -> dict[str, Any]:
         "sideDishes": [item for item in items if item not in excluded],
         "dessert": dessert,
         "drink": drink,
-        "items": items,
         "notes": "",
         "rawText": raw_text,
     }
@@ -244,7 +243,6 @@ def _empty_menu() -> dict[str, Any]:
         "sideDishes": [],
         "dessert": "",
         "drink": "",
-        "items": [],
         "notes": "",
         "rawText": "",
     }

@@ -127,7 +127,6 @@ function fillMealForm(mealKey, mealRecord) {
   field(mealKey, "SideDishes").value = (menu.sideDishes || []).join("\n");
   field(mealKey, "Dessert").value = menu.dessert || "";
   field(mealKey, "Drink").value = menu.drink || "";
-  field(mealKey, "Items").value = (menu.items || []).join("\n");
 }
 
 function readMealForm(mealKey) {
@@ -141,7 +140,6 @@ function readMealForm(mealKey) {
       sideDishes: lines(field(mealKey, "SideDishes").value),
       dessert: field(mealKey, "Dessert").value,
       drink: field(mealKey, "Drink").value,
-      items: lines(field(mealKey, "Items").value),
       notes: "",
       rawText: "",
     },

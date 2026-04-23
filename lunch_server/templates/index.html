@@ -1,10 +1,6 @@
 {% extends "base.html" %}
-{% block title %}식단{% endblock %}
+{% block title %}Lunch Server{% endblock %}
 {% block content %}
-<section class="page-heading">
-  <h1>식단</h1>
-</section>
-
 <section class="calendar-layout" data-mode="public">
   <div class="calendar-panel">
     <div class="month-toolbar">
@@ -21,7 +17,6 @@
   <aside class="detail-panel" id="detailPanel">
     <button type="button" class="date-button" id="selectedDateLabel"></button>
     <input type="date" id="datePicker" class="date-picker" aria-label="날짜 선택">
-    <h2 id="detailTitle"></h2>
     <select id="mealSelector" class="meal-selector" aria-label="식사 선택">
       <option value="breakfast">조식</option>
       <option value="lunch" selected>중식</option>

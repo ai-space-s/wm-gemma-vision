@@ -11,7 +11,6 @@ const state = {
 const monthTitle = document.getElementById("monthTitle");
 const calendarGrid = document.getElementById("calendarGrid");
 const selectedDateLabel = document.getElementById("selectedDateLabel");
-const detailTitle = document.getElementById("detailTitle");
 const menuStatus = document.getElementById("menuStatus");
 const menuItems = document.getElementById("menuItems");
 const mealSelector = document.getElementById("mealSelector");
@@ -94,7 +93,6 @@ async function selectDate(key) {
   datePicker.value = key;
   renderCalendar();
   selectedDateLabel.textContent = key;
-  detailTitle.textContent = "식단";
   menuStatus.className = "status-line";
   menuStatus.textContent = "";
   menuItems.innerHTML = "";
@@ -220,9 +218,6 @@ function collectMenuItems(menu = {}) {
   for (const item of menu.sideDishes || []) items.push(item);
   if (menu.dessert) items.push(menu.dessert);
   if (menu.drink) items.push(menu.drink);
-  for (const item of menu.items || []) {
-    if (!items.includes(item)) items.push(item);
-  }
   return items;
 }
 
@@ -235,7 +230,7 @@ function emptyMeal() {
     hasMeal: true,
     reason: "",
     reasonCode: "",
-    menu: { main: "", soup: "", sideDishes: [], dessert: "", drink: "", items: [] },
+    menu: { main: "", soup: "", sideDishes: [], dessert: "", drink: "" },
   };
 }
 

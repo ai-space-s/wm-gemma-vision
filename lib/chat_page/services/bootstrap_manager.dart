@@ -93,8 +93,7 @@ class BootstrapManager {
 
       if (!isMounted() || isDisposed()) {
         debugPrint("[BootstrapManager] Not mounted after TTS init");
-        _globalBootstrapCompleter!.complete();
-        throw BootstrapException("Widget not mounted");
+        throw _completeBootstrapError(BootstrapException("Widget not mounted"));
       }
 
       // Step 2: Initialize text recognition (OCR for image analysis)
@@ -106,8 +105,7 @@ class BootstrapManager {
         debugPrint(
           "[BootstrapManager] Not mounted after text recognition init",
         );
-        _globalBootstrapCompleter!.complete();
-        throw BootstrapException("Widget not mounted");
+        throw _completeBootstrapError(BootstrapException("Widget not mounted"));
       }
 
       // Step 3: Initialize speech service (depends on TTS)
@@ -123,8 +121,7 @@ class BootstrapManager {
 
       if (!isMounted() || isDisposed()) {
         debugPrint("[BootstrapManager] Not mounted after speech init");
-        _globalBootstrapCompleter!.complete();
-        throw BootstrapException("Widget not mounted");
+        throw _completeBootstrapError(BootstrapException("Widget not mounted"));
       }
       debugPrint("[BootstrapManager] Speech service initialized");
 
@@ -177,8 +174,7 @@ class BootstrapManager {
 
       if (!isMounted() || isDisposed()) {
         debugPrint("[BootstrapManager] Not mounted after Gemma 4 init");
-        _globalBootstrapCompleter!.complete();
-        throw BootstrapException("Widget not mounted");
+        throw _completeBootstrapError(BootstrapException("Widget not mounted"));
       }
       debugPrint("[BootstrapManager] Gemma 4 service initialized successfully");
 
@@ -224,6 +220,14 @@ class BootstrapManager {
   static void reset() {
     _globalBootstrapping = false;
     _globalBootstrapCompleter = null;
+  }
+
+  static Exception _completeBootstrapError(Exception error) {
+    final completer = _globalBootstrapCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(error);
+    }
+    return error;
   }
 }
 

@@ -1,10 +1,6 @@
 {% extends "base.html" %}
-{% block title %}식단 관리자{% endblock %}
+{% block title %}Admin{% endblock %}
 {% block content %}
-<section class="page-heading">
-  <h1>식단 관리자</h1>
-</section>
-
 <section class="calendar-layout admin-layout" data-mode="admin">
   <div class="calendar-panel">
     <div class="month-toolbar">
@@ -21,7 +17,6 @@
   <aside class="detail-panel editor-panel">
     <button type="button" class="date-button" id="selectedDateLabel"></button>
     <input type="date" id="datePicker" class="date-picker" aria-label="날짜 선택">
-    <h2 id="detailTitle"></h2>
     <select id="mealSelector" class="meal-selector" aria-label="식사 선택">
       <option value="breakfast">조식</option>
       <option value="lunch" selected>중식</option>
@@ -57,9 +52,6 @@
         </label>
         <label>음료
           <input id="{{ key }}Drink" type="text">
-        </label>
-        <label>기타
-          <textarea id="{{ key }}Items" rows="3"></textarea>
         </label>
       </fieldset>
       {% endfor %}

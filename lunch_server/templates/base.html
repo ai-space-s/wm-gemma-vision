@@ -3,19 +3,50 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}식단{% endblock %}</title>
+    <title>{% block title %}Lunch Server{% endblock %}</title>
     {% if csrf_token is defined %}
     <meta name="csrf-token" content="{{ csrf_token }}">
     {% endif %}
+    <script>
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              ink: "#172033",
+              muted: "#64748b",
+              line: "#dbe3ef",
+              accent: "#0f766e"
+            },
+            boxShadow: {
+              soft: "0 18px 50px rgba(15, 23, 42, 0.10)"
+            }
+          }
+        }
+      };
+    </script>
+    <script>
+      (() => {
+        const theme = localStorage.getItem("lunchTheme") || "light";
+        document.documentElement.classList.toggle("dark", theme === "dark");
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
-  <body>
+  <body class="min-h-screen antialiased transition-colors duration-200">
     <header class="topbar">
-      <a class="brand" href="/">
+      <a class="brand" href="/" aria-label="Home">
         <span class="brand-mark">L</span>
-        <span>식단</span>
       </a>
       <nav class="nav">
+        <label class="theme-toggle" aria-label="테마 변경">
+          <input id="themeToggle" type="checkbox" class="sr-only">
+          <span class="theme-toggle-track">
+            <span class="theme-toggle-thumb"></span>
+          </span>
+        </label>
         <a href="/">일반</a>
         <a href="/admin">관리자</a>
         {% if session.admin_authenticated %}
@@ -31,5 +62,18 @@
     <main class="shell">
       {% block content %}{% endblock %}
     </main>
+    <script>
+      (() => {
+        const toggle = document.getElementById("themeToggle");
+        if (!toggle) return;
+        const applyTheme = (theme) => {
+          document.documentElement.classList.toggle("dark", theme === "dark");
+          toggle.checked = theme === "dark";
+          localStorage.setItem("lunchTheme", theme);
+        };
+        applyTheme(localStorage.getItem("lunchTheme") || "light");
+        toggle.addEventListener("change", () => applyTheme(toggle.checked ? "dark" : "light"));
+      })();
+    </script>
   </body>
 </html>

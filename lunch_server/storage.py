@@ -211,7 +211,7 @@ def normalize_record(key: str, payload: dict[str, Any]) -> dict[str, Any]:
 def normalize_meal(payload: dict[str, Any]) -> dict[str, Any]:
     menu = payload.get("menu") or {}
     return {
-        "hasMeal": bool(payload.get("hasMeal", payload.get("has_meal", True))),
+        "hasMeal": _clean_bool(payload.get("hasMeal", payload.get("has_meal")), True),
         "reason": _clean_reason(payload.get("reason")),
         "reasonCode": _clean_text(payload.get("reasonCode") or payload.get("reason_code")),
         "menu": normalize_menu(menu),
@@ -219,31 +219,16 @@ def normalize_meal(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_menu(payload: dict[str, Any]) -> dict[str, Any]:
-    items = _clean_list(payload.get("items"))
     side_dishes = _clean_list(payload.get("sideDishes") or payload.get("side_dishes"))
-    menu = {
+    return {
         "main": _clean_text(payload.get("main")),
         "soup": _clean_text(payload.get("soup")),
         "sideDishes": side_dishes,
         "dessert": _clean_text(payload.get("dessert")),
         "drink": _clean_text(payload.get("drink")),
-        "items": items,
         "notes": _clean_text(payload.get("notes")),
         "rawText": _clean_text(payload.get("rawText") or payload.get("raw_text")),
     }
-    if not menu["items"]:
-        menu["items"] = [
-            value
-            for value in [
-                menu["main"],
-                menu["soup"],
-                *menu["sideDishes"],
-                menu["dessert"],
-                menu["drink"],
-            ]
-            if value
-        ]
-    return menu
 
 
 def _meal_has_content(meal_record: dict[str, Any]) -> bool:
@@ -258,8 +243,6 @@ def _menu_has_content(menu: dict[str, Any]) -> bool:
             menu.get("sideDishes"),
             menu.get("dessert"),
             menu.get("drink"),
-            menu.get("items"),
-            menu.get("rawText"),
         ]
     )
 
@@ -268,6 +251,22 @@ def _clean_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _clean_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+
+    text = _clean_text(value).casefold()
+    if text in {"false", "0", "no", "n", "off", "미제공"}:
+        return False
+    if text in {"true", "1", "yes", "y", "on", "제공"}:
+        return True
+    return default
 
 
 def _clean_reason(value: Any) -> str:

@@ -26,8 +26,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.tommasogiovannini.gemma/assets"
@@ -249,9 +249,9 @@ class MainActivity: FlutterActivity() {
 
         try {
             if (imagePath.isNullOrBlank()) {
-                streamGemmaResponse(requestId) { callback ->
+                streamGemmaResponse(requestId, start = { callback ->
                     conversation.sendMessageAsync(prompt, callback)
-                }
+                })
             } else {
                 val imageFile = File(imagePath)
                 if (!imageFile.isFile) {
@@ -262,9 +262,9 @@ class MainActivity: FlutterActivity() {
                     Content.ImageFile(imageFile.canonicalPath),
                     Content.Text(prompt)
                 )
-                streamGemmaResponse(requestId) { callback ->
+                streamGemmaResponse(requestId, start = { callback ->
                     conversation.sendMessageAsync(content, callback)
-                }
+                })
             }
         } catch (t: Throwable) {
             emitMlcError(requestId, t.message ?: "Gemma 4 generation failed.")
@@ -280,38 +280,55 @@ class MainActivity: FlutterActivity() {
 
         var conversation: Conversation? = null
         try {
-            conversation = engine.createConversation()
+            val activeConversation = engine.createConversation()
+            conversation = activeConversation
             if (imagePath.isNullOrBlank()) {
-                streamGemmaResponse(requestId) { callback ->
-                    conversation.sendMessageAsync(prompt, callback)
-                }
+                streamGemmaResponse(
+                    requestId,
+                    start = { callback -> activeConversation.sendMessageAsync(prompt, callback) },
+                    onFinished = { closeConversation(activeConversation) }
+                )
             } else {
                 val imageFile = File(imagePath)
                 if (!imageFile.isFile) {
                     emitMlcError(requestId, "Image file missing: $imagePath")
+                    closeConversation(activeConversation)
                     return
                 }
                 val content = Contents.of(
                     Content.ImageFile(imageFile.canonicalPath),
                     Content.Text(prompt)
                 )
-                streamGemmaResponse(requestId) { callback ->
-                    conversation.sendMessageAsync(content, callback)
-                }
+                streamGemmaResponse(
+                    requestId,
+                    start = { callback -> activeConversation.sendMessageAsync(content, callback) },
+                    onFinished = { closeConversation(activeConversation) }
+                )
             }
         } catch (t: Throwable) {
+            conversation?.let { closeConversation(it) }
             emitMlcError(requestId, t.message ?: "Gemma 4 temporary generation failed.")
-        } finally {
-            try {
-                conversation?.close()
-            } catch (_: Exception) {
-            }
         }
     }
 
-    private fun streamGemmaResponse(requestId: String, start: (MessageCallback) -> Unit) {
-        val done = CountDownLatch(1)
+    private fun streamGemmaResponse(
+        requestId: String,
+        start: (MessageCallback) -> Unit,
+        onFinished: (() -> Unit)? = null
+    ) {
+        val completed = AtomicBoolean(false)
+        val textLock = Any()
         var accumulatedText = ""
+
+        fun finish(emitTerminalEvent: () -> Unit) {
+            if (completed.compareAndSet(false, true)) {
+                try {
+                    emitTerminalEvent()
+                } finally {
+                    onFinished?.invoke()
+                }
+            }
+        }
 
         val callback = object : MessageCallback {
             override fun onMessage(message: Message) {
@@ -320,36 +337,38 @@ class MainActivity: FlutterActivity() {
                     return
                 }
 
-                val delta = if (text.startsWith(accumulatedText)) {
-                    text.substring(accumulatedText.length)
-                } else {
-                    text
+                val delta = synchronized(textLock) {
+                    val nextDelta = if (text.startsWith(accumulatedText)) {
+                        text.substring(accumulatedText.length)
+                    } else {
+                        text
+                    }
+
+                    accumulatedText = if (text.startsWith(accumulatedText)) {
+                        text
+                    } else {
+                        accumulatedText + text
+                    }
+                    nextDelta
                 }
 
                 if (delta.isNotEmpty()) {
                     emitMlcTokenDelta(requestId, delta)
                 }
-
-                accumulatedText = if (text.startsWith(accumulatedText)) {
-                    text
-                } else {
-                    accumulatedText + text
-                }
             }
 
             override fun onDone() {
-                emitMlcDone(requestId)
-                done.countDown()
+                finish { emitMlcDone(requestId) }
             }
 
             override fun onError(t: Throwable) {
-                emitMlcError(requestId, t.message ?: "Gemma 4 generation failed.")
-                done.countDown()
+                finish {
+                    emitMlcError(requestId, t.message ?: "Gemma 4 generation failed.")
+                }
             }
         }
 
         start(callback)
-        done.await()
     }
 
     private fun getCurrentLocation(result: MethodChannel.Result) {
@@ -549,6 +568,13 @@ class MainActivity: FlutterActivity() {
         gemmaConversation = null
         gemmaEngine = null
         mlcRuntimeReady = false
+    }
+
+    private fun closeConversation(conversation: Conversation) {
+        try {
+            conversation.close()
+        } catch (_: Exception) {
+        }
     }
 
     private fun copyAssetFile(assetName: String, targetPath: String): Boolean {
