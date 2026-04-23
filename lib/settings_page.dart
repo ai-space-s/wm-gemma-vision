@@ -564,7 +564,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildFunctionCallingToggle() {
     return _buildToggleTile(
       title: 'Enable tool calling',
-      subtitle: 'Use Gemma 4 to call built-in tools such as lunch and weather.',
+      subtitle: 'Use built-in tools for requests such as lunch and weather.',
       value: _toolCallingEnabled,
       onChanged: (value) {
         setState(() => _toolCallingEnabled = value);

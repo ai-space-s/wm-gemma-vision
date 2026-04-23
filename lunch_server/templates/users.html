@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}사용자{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <h1>사용자</h1>
+</section>
+
+{% if status %}
+<div class="import-result visible">성공</div>
+{% endif %}
+{% if error %}
+<div class="import-result visible error">실패</div>
+{% endif %}
+
+<section class="user-layout">
+  <div class="user-panel">
+    <h2>등록</h2>
+    <form method="post" action="{{ url_for('create_user') }}" class="login-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>아이디
+        <input name="username" autocomplete="off" minlength="3" maxlength="64" pattern="[A-Za-z0-9_.@-]{3,64}" required>
+      </label>
+      <label>비밀번호
+        <input name="password" type="password" autocomplete="new-password" minlength="8" required>
+      </label>
+      <button type="submit" class="primary-button">등록</button>
+    </form>
+  </div>
+
+  <div class="user-panel user-list-panel">
+    <h2>목록</h2>
+    <div class="user-list">
+      {% for user in users %}
+      <article class="user-row">
+        <div>
+          <strong>{{ user.fingerprint }}</strong>
+          {% if user.id == current_user_id %}
+          <span class="current-badge">현재</span>
+          {% endif %}
+          <p>{{ user.updatedAt or user.createdAt }}</p>
+        </div>
+        <form method="post" action="{{ url_for('change_user_password', user_id=user.id) }}" class="inline-user-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input name="password" type="password" autocomplete="new-password" minlength="8" required aria-label="새 비밀번호">
+          <button type="submit" class="secondary-button neutral">변경</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" class="inline-user-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="secondary-button">삭제</button>
+        </form>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

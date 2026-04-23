@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}식단 관리자{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <h1>식단 관리자</h1>
+</section>
+
+<section class="calendar-layout admin-layout" data-mode="admin">
+  <div class="calendar-panel">
+    <div class="month-toolbar">
+      <button class="icon-button" id="prevMonth" aria-label="이전 달">‹</button>
+      <h2 id="monthTitle"></h2>
+      <button class="icon-button" id="nextMonth" aria-label="다음 달">›</button>
+    </div>
+    <div class="weekday-row">
+      <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span><span>일</span>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+  </div>
+
+  <aside class="detail-panel editor-panel">
+    <button type="button" class="date-button" id="selectedDateLabel"></button>
+    <input type="date" id="datePicker" class="date-picker" aria-label="날짜 선택">
+    <h2 id="detailTitle"></h2>
+    <select id="mealSelector" class="meal-selector" aria-label="식사 선택">
+      <option value="breakfast">조식</option>
+      <option value="lunch" selected>중식</option>
+      <option value="dinner">석식</option>
+    </select>
+    <div id="menuStatus" class="status-line"></div>
+    <div id="menuItems" class="meal-list compact single"></div>
+
+    <form id="menuForm" class="editor-form">
+      {% for key, label in [("breakfast", "조식"), ("lunch", "중식"), ("dinner", "석식")] %}
+      <fieldset class="meal-editor" data-meal="{{ key }}">
+        <legend>{{ label }}</legend>
+        <label>제공
+          <select id="{{ key }}HasMeal">
+            <option value="true">제공</option>
+            <option value="false">미제공</option>
+          </select>
+        </label>
+        <label>사유
+          <input id="{{ key }}Reason" type="text">
+        </label>
+        <label>대표
+          <input id="{{ key }}Main" type="text">
+        </label>
+        <label>국/탕
+          <input id="{{ key }}Soup" type="text">
+        </label>
+        <label>반찬
+          <textarea id="{{ key }}SideDishes" rows="3"></textarea>
+        </label>
+        <label>후식
+          <input id="{{ key }}Dessert" type="text">
+        </label>
+        <label>음료
+          <input id="{{ key }}Drink" type="text">
+        </label>
+        <label>기타
+          <textarea id="{{ key }}Items" rows="3"></textarea>
+        </label>
+      </fieldset>
+      {% endfor %}
+      <div class="button-row">
+        <button type="submit" class="primary-button">저장</button>
+        <button type="button" class="secondary-button" id="deleteButton">삭제</button>
+      </div>
+    </form>
+  </aside>
+</section>
+
+<section class="import-band">
+  <h2>XLSX</h2>
+  <form id="importForm" class="import-form">
+    <input type="file" id="xlsxFile" accept=".xlsx" required>
+    <button type="submit" class="primary-button">분석</button>
+  </form>
+  <div id="importResult" class="import-result" role="status"></div>
+  <div id="importConfirm" class="confirm-panel" hidden>
+    <dl>
+      <div><dt>추가 날짜</dt><dd id="confirmTotal">0</dd></div>
+      <div><dt>덮어쓰기</dt><dd id="confirmOverwrite">0</dd></div>
+      <div><dt>실패 날짜</dt><dd id="confirmFailed">0</dd></div>
+    </dl>
+    <div class="button-row">
+      <button type="button" class="primary-button" id="confirmImportButton">등록</button>
+      <button type="button" class="secondary-button" id="cancelImportButton">취소</button>
+    </div>
+  </div>
+</section>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='admin.js') }}"></script>
+{% endblock %}

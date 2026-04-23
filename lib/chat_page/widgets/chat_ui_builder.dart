@@ -63,8 +63,10 @@ class ChatUIBuilder {
               ),
               PopupMenuItem(
                 value: _ChatMenuAction.saveAs,
-                child:
-                Text('Save chat as...', style: TextStyle(color: textColor)),
+                child: Text(
+                  'Save chat as...',
+                  style: TextStyle(color: textColor),
+                ),
               ),
               PopupMenuItem(
                 value: _ChatMenuAction.load,
@@ -138,8 +140,9 @@ class ChatUIBuilder {
                     : 'Double-tap to start a new chat conversation',
                 isActive: true,
                 activeColor: highContrast ? Colors.white : Colors.teal,
-                inactiveColor:
-                highContrast ? Colors.black : const Color(0xFFE8F5E8),
+                inactiveColor: highContrast
+                    ? Colors.black
+                    : const Color(0xFFE8F5E8),
                 onPressed: isResetting ? null : onNewChat,
                 disabled: isResetting,
                 highContrast: highContrast,
@@ -157,8 +160,9 @@ class ChatUIBuilder {
                     : 'Double-tap to show the conversation messages',
                 isActive: showMessages,
                 activeColor: highContrast ? Colors.white : Colors.blueAccent,
-                inactiveColor:
-                highContrast ? Colors.black : const Color(0xFFE3F2FD),
+                inactiveColor: highContrast
+                    ? Colors.black
+                    : const Color(0xFFE3F2FD),
                 onPressed: onToggleMessages,
                 disabled: false,
                 highContrast: highContrast,
@@ -186,8 +190,9 @@ class ChatUIBuilder {
     Color iconColor;
 
     if (disabled) {
-      backgroundColor =
-      highContrast ? Colors.grey.shade900 : const Color(0xFFE0E7FF);
+      backgroundColor = highContrast
+          ? Colors.grey.shade900
+          : const Color(0xFFE0E7FF);
       textColor = const Color(0xFF9CA3AF);
       iconColor = const Color(0xFF9CA3AF);
     } else if (isActive) {
@@ -247,9 +252,9 @@ class ChatUIBuilder {
   }
 
   static Widget buildMessagesContainer(
-      List<ChatMessage> messages,
-      ScrollController scrollController,
-      ) {
+    List<ChatMessage> messages,
+    ScrollController scrollController,
+  ) {
     return Expanded(
       child: Semantics(
         label: 'Chat messages',
@@ -318,7 +323,7 @@ class ChatUIBuilder {
   static Widget _buildStatusWidget({
     required bool isGenerating,
     required bool isSpeaking,
-    VoidCallback? onStopTts,
+    Future<void> Function()? onStopTts,
   }) {
     final highContrast = AppSettings.instance.highContrastEnabled;
 
@@ -328,10 +333,10 @@ class ChatUIBuilder {
         gradient: highContrast
             ? null
             : LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.orange.shade400, Colors.deepOrange.shade500],
-        ),
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.orange.shade400, Colors.deepOrange.shade500],
+              ),
         color: highContrast ? Colors.grey.shade900 : null,
         border: highContrast
             ? Border(top: BorderSide(color: Colors.white, width: 2))
@@ -356,15 +361,18 @@ class ChatUIBuilder {
                   ),
                 )
               else
-                const Icon(Icons.stop_circle_outlined,
-                    color: Colors.white, size: 28),
+                const Icon(
+                  Icons.stop_circle_outlined,
+                  color: Colors.white,
+                  size: 28,
+                ),
               const SizedBox(width: 16),
               Text(
                 isGenerating
                     ? (isSpeaking
-                    ? 'Generating and Speaking…'
-                    : 'Generating Response…')
-                    : 'Speaking... (Tap to Stop)',
+                          ? 'Generating and Speaking...'
+                          : 'Generating Response...')
+                    : 'Speaking... (Double Tap to Stop)',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -378,7 +386,7 @@ class ChatUIBuilder {
     );
 
     return GestureDetector(
-      onTap: () {
+      onDoubleTap: () {
         if (isSpeaking && onStopTts != null) {
           onStopTts();
           HapticFeedback.lightImpact();
@@ -389,6 +397,11 @@ class ChatUIBuilder {
             ? 'Generating response. Please wait.'
             : 'Speaking response. Double tap to stop speaking.',
         button: true,
+        onTap: isSpeaking && onStopTts != null
+            ? () {
+                onStopTts();
+              }
+            : null,
         child: content,
       ),
     );
@@ -398,9 +411,7 @@ class ChatUIBuilder {
     return const Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(color: Color(0xFF2196F3)),
-        child: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
+        child: Center(child: CircularProgressIndicator(color: Colors.white)),
       ),
     );
   }

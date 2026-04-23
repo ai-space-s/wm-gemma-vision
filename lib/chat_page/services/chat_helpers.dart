@@ -12,8 +12,6 @@ import 'gemma_service.dart';
 import 'speech_service.dart';
 import 'streaming_tts_service.dart';
 import 'text_recognition_service.dart';
-import 'lunch_service.dart';
-import 'weather_service.dart';
 import '../../app_settings.dart';
 
 class ChatHelpers {
@@ -26,8 +24,6 @@ class ChatHelpers {
 
   // [추가] 갤러리 이미지 선택을 위한 ImagePicker 인스턴스
   final ImagePicker _picker = ImagePicker();
-
-  final LunchService _lunchService = LunchService.instance;
 
   String _systemCtx;
   bool _resetting = false;
@@ -63,6 +59,12 @@ class ChatHelpers {
   String get systemContext => _systemCtx;
 
   void updateSystemContext(String newContext) => _systemCtx = newContext;
+
+  Future<void> stopSpeaking() async {
+    _streamingTts.stop();
+    await _speechService.stopTts();
+    _onStateChanged();
+  }
 
   String _buildConversationPrompt(
     List<ChatMessage> messages,
@@ -435,34 +437,7 @@ class ChatHelpers {
     String originalPrompt,
     List<ChatMessage> messages,
   ) async {
-    String resultJson = "";
-
-    try {
-      if (call.name == 'get_lunch_menu') {
-        final date = call.args['date'] ?? 'today';
-        resultJson = await _lunchService.getLunchMenu(date);
-      } else if (call.name == 'get_weather') {
-        double lat = 0.0;
-        double lon = 0.0;
-
-        if (call.args['latitude'] != null) {
-          lat = double.tryParse(call.args['latitude'].toString()) ?? 0.0;
-        }
-        if (call.args['longitude'] != null) {
-          lon = double.tryParse(call.args['longitude'].toString()) ?? 0.0;
-        }
-
-        resultJson = await WeatherService.instance.getWeather(
-          latitude: lat,
-          longitude: lon,
-        );
-      } else {
-        resultJson =
-            '{"status": "error", "message": "Unknown function: ${call.name}"}';
-      }
-    } catch (e) {
-      resultJson = '{"status": "error", "message": "Execution failed: $e"}';
-    }
+    final resultJson = await FunctionCallingService.instance.execute(call);
 
     final nextPrompt =
         '''
@@ -475,6 +450,11 @@ Instructions:
 1. Using the result above, answer the user's question naturally in Korean.
 2. If the result indicates an error, politely inform the user.
 ''';
+
+    if (messages.isNotEmpty && !messages.last.isUser) {
+      messages.last.text = '';
+      _onStateChanged();
+    }
 
     // Recursive call to generate natural language response
     await sendTextOnly(

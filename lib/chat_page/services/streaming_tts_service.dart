@@ -37,6 +37,7 @@ class StreamingTtsService {
   static const Duration _resumeDelay = Duration(seconds: 6); // TalkBack ~5 s
   bool _resumeScheduled = false;
   bool _suppressResumeOnCancel = false;
+  bool _stopRequested = false;
 
   StreamingTtsService(this._tts) {
     _configureTts();
@@ -72,6 +73,7 @@ class StreamingTtsService {
   }
 
   void _scheduleResume() {
+    if (_stopRequested) return;
     if (_resumeScheduled || _resumeAttempts >= _maxResumeAttempts) return;
     _resumeAttempts++;
     _resumeScheduled = true;
@@ -84,12 +86,15 @@ class StreamingTtsService {
     resumeFrom = resumeFrom.clamp(0, cleanBuffer.length);
 
     Future.delayed(_resumeDelay, () {
+      if (_stopRequested) return;
       _resumeScheduled = false;
       _speak(from: resumeFrom);
     });
   }
 
   Future<void> _speak({int from = 0}) async {
+    if (_stopRequested) return;
+
     final cleanBuffer = _cleanTextForTts(_buffer);
     final String text = from < cleanBuffer.length
         ? cleanBuffer.substring(from)
@@ -117,6 +122,7 @@ class StreamingTtsService {
   // ───────────────────────────────────────────
   Future<void> startLoading() async {
     if (_isLoading) return;
+    _stopRequested = false;
     _isLoading = true;
     _resetState();
     await SoundManager.instance.playLoading();
@@ -131,6 +137,7 @@ class StreamingTtsService {
   /// Consume one streaming token.
   /// Starts speaking once a complete sentence arrives.
   void addText(String newToken, String currentFullText) {
+    if (_stopRequested) return;
     _buffer = currentFullText;
 
     // Immediately process buffer on any new token
@@ -138,6 +145,7 @@ class StreamingTtsService {
   }
 
   Future<void> onMessageComplete() async {
+    if (_stopRequested) return;
     _messageComplete = true;
     await stopLoading();
     await _forceCompleteReading();
@@ -156,6 +164,7 @@ class StreamingTtsService {
   // ────────────────────────────────────────────────
   Future<void> _processBuffer() async {
     final cleanText = _cleanTextForTts(_buffer);
+    if (_stopRequested) return;
     if (cleanText.isEmpty || _isProcessing) return;
     if (cleanText.length <= _lastSpokenLength) return;
 
@@ -180,7 +189,7 @@ class StreamingTtsService {
   Future<void> _processNextSegment() async {
     if (_isProcessing) return;
 
-    while (_pendingSegments.isNotEmpty) {
+    while (_pendingSegments.isNotEmpty && !_stopRequested) {
       _isProcessing = true;
 
       if (!isSpeaking.value) {
@@ -200,6 +209,7 @@ class StreamingTtsService {
 
       try {
         await _tts.speak(segment);
+        if (_stopRequested) break;
         _previousSegment = segment;
       } catch (_) {
         break;
@@ -226,6 +236,7 @@ class StreamingTtsService {
   // ───────────────────────────────────────────────
   Future<void> _forceCompleteReading() async {
     final cleanBuffer = _cleanTextForTts(_buffer);
+    if (_stopRequested) return;
 
     if (cleanBuffer.trim().isEmpty) {
       isSpeaking.value = false;
@@ -328,8 +339,11 @@ class StreamingTtsService {
   }
 
   void _hardReset() {
+    _stopRequested = true;
+    _suppressResumeOnCancel = true;
     _tts.stop();
     _resetState();
+    _suppressResumeOnCancel = false;
     stopLoading();
   }
 }

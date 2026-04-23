@@ -1,5 +1,15 @@
 package com.tommasogiovannini.gemma
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import androidx.core.content.ContextCompat
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -21,11 +31,13 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.tommasogiovannini.gemma/assets"
     private val MLC_CHANNEL = "com.tommasogiovannini.gemma/mlc"
     private val MLC_STREAM_CHANNEL = "com.tommasogiovannini.gemma/mlc_stream"
+    private val LOCATION_CHANNEL = "com.tommasogiovannini.gemma/location"
     private val executor = Executors.newSingleThreadExecutor()
     private var mlcEventSink: EventChannel.EventSink? = null
     private var mlcRuntimeReady: Boolean = false
     private var gemmaEngine: Engine? = null
     private var gemmaConversation: Conversation? = null
+    private var pendingLocationResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -61,6 +73,14 @@ class MainActivity: FlutterActivity() {
                 result.notImplemented()
             }
         }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LOCATION_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getCurrentLocation" -> getCurrentLocation(result)
+                    else -> result.notImplemented()
+                }
+            }
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, MLC_STREAM_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
@@ -163,6 +183,33 @@ class MainActivity: FlutterActivity() {
                         }
                     }
 
+                    "generateTemporary" -> {
+                        val requestId = call.argument<String>("requestId")
+                        val prompt = call.argument<String>("prompt")
+                        val imagePath = call.argument<String>("imagePath")
+                        if (requestId.isNullOrBlank()) {
+                            result.error("INVALID_ARGS", "requestId is required", null)
+                            return@setMethodCallHandler
+                        }
+                        if (prompt.isNullOrBlank()) {
+                            result.error("INVALID_ARGS", "prompt is required", null)
+                            return@setMethodCallHandler
+                        }
+                        if (!mlcRuntimeReady) {
+                            result.error(
+                                "GEMMA_RUNTIME_MISSING",
+                                "Gemma 4 Android native runtime is not initialized.",
+                                null
+                            )
+                            return@setMethodCallHandler
+                        }
+
+                        result.success(true)
+                        executor.execute {
+                            generateWithTemporaryConversation(requestId, prompt, imagePath)
+                        }
+                    }
+
                     "reset" -> {
                         executor.execute {
                             try {
@@ -219,6 +266,178 @@ class MainActivity: FlutterActivity() {
         } catch (t: Throwable) {
             emitMlcError(requestId, t.message ?: "Gemma 4 generation failed.")
         }
+    }
+
+    private fun generateWithTemporaryConversation(requestId: String, prompt: String, imagePath: String?) {
+        val engine = gemmaEngine
+        if (engine == null) {
+            emitMlcError(requestId, "Gemma 4 engine is not initialized.")
+            return
+        }
+
+        var conversation: Conversation? = null
+        try {
+            conversation = engine.createConversation()
+            val response = if (imagePath.isNullOrBlank()) {
+                conversation.sendMessage(prompt)
+            } else {
+                val imageFile = File(imagePath)
+                if (!imageFile.isFile) {
+                    emitMlcError(requestId, "Image file missing: $imagePath")
+                    return
+                }
+                val content = Contents.of(
+                    Content.ImageFile(imageFile.canonicalPath),
+                    Content.Text(prompt)
+                )
+                conversation.sendMessage(content)
+            }
+
+            emitMlcTokenDelta(requestId, messageToText(response))
+            emitMlcDone(requestId)
+        } catch (t: Throwable) {
+            emitMlcError(requestId, t.message ?: "Gemma 4 temporary generation failed.")
+        } finally {
+            try {
+                conversation?.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun getCurrentLocation(result: MethodChannel.Result) {
+        if (!hasLocationPermission()) {
+            result.error("LOCATION_PERMISSION_MISSING", "Location permission is not granted.", null)
+            return
+        }
+
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val providers = listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER
+        ).filter { provider ->
+            try {
+                locationManager.isProviderEnabled(provider)
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        if (providers.isEmpty()) {
+            result.error("LOCATION_PROVIDER_DISABLED", "No location provider is enabled.", null)
+            return
+        }
+
+        val lastKnown = providers
+            .mapNotNull { provider ->
+                try {
+                    locationManager.getLastKnownLocation(provider)
+                } catch (_: SecurityException) {
+                    null
+                }
+            }
+            .maxByOrNull { it.time }
+
+        if (lastKnown != null && System.currentTimeMillis() - lastKnown.time < 10 * 60 * 1000) {
+            result.success(locationToMap(lastKnown))
+            return
+        }
+
+        if (pendingLocationResult != null) {
+            result.error("LOCATION_REQUEST_ACTIVE", "A location request is already active.", null)
+            return
+        }
+
+        pendingLocationResult = result
+        val provider = providers.first()
+        val handler = Handler(Looper.getMainLooper())
+        var listener: LocationListener? = null
+
+        listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                completeLocation(locationManager, listener, locationToMap(location), null)
+            }
+
+            override fun onProviderDisabled(provider: String) {
+                completeLocation(
+                    locationManager,
+                    listener,
+                    null,
+                    "Location provider was disabled before a location was received."
+                )
+            }
+
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+            }
+        }
+
+        handler.postDelayed({
+            val fallback = providers
+                .mapNotNull { activeProvider ->
+                    try {
+                        locationManager.getLastKnownLocation(activeProvider)
+                    } catch (_: SecurityException) {
+                        null
+                    }
+                }
+                .maxByOrNull { it.time }
+
+            completeLocation(
+                locationManager,
+                listener,
+                fallback?.let { locationToMap(it) },
+                if (fallback == null) "Timed out while waiting for current location." else null
+            )
+        }, 15_000)
+
+        try {
+            locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
+        } catch (e: SecurityException) {
+            completeLocation(locationManager, listener, null, e.message ?: "Location permission denied.")
+        }
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun completeLocation(
+        locationManager: LocationManager,
+        listener: LocationListener?,
+        value: Map<String, Any?>?,
+        error: String?
+    ) {
+        if (listener != null) {
+            try {
+                locationManager.removeUpdates(listener)
+            } catch (_: Exception) {
+            }
+        }
+
+        val result = pendingLocationResult ?: return
+        pendingLocationResult = null
+        runOnUiThread {
+            if (value != null) {
+                result.success(value)
+            } else {
+                result.error("LOCATION_UNAVAILABLE", error ?: "Location unavailable.", null)
+            }
+        }
+    }
+
+    private fun locationToMap(location: Location): Map<String, Any?> {
+        return mapOf(
+            "latitude" to location.latitude,
+            "longitude" to location.longitude,
+            "provider" to location.provider
+        )
     }
 
     private fun messageToText(message: Message): String {

@@ -340,7 +340,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                       onToggleListening: _speechService!.toggleDictation,
                       isGenerating: _chatHelpers!.isGenerating,
                       isSpeaking: _chatHelpers!.isSpeaking,
-                      onStopTts: _speechService!.stopTts,
+                      onStopTts: _chatHelpers!.stopSpeaking,
                     ),
                   ],
                 ),

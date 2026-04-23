@@ -137,6 +137,7 @@ class GemmaService {
       temperature: 0.0,
       topP: 1.0,
       maxTokens: 512,
+      temporarySession: true,
       onToken: buffer.write,
     );
     return buffer.toString();
@@ -195,6 +196,7 @@ class GemmaService {
     required double temperature,
     required double topP,
     required int maxTokens,
+    bool temporarySession = false,
     required void Function(String token) onToken,
   }) async {
     await _ensureInitialised();
@@ -205,15 +207,18 @@ class GemmaService {
     _pending[requestId] = pending;
 
     try {
-      await _channel.invokeMethod('generate', {
-        'requestId': requestId,
-        'prompt': prompt,
-        if (imagePath != null && imagePath.isNotEmpty) 'imagePath': imagePath,
-        'temperature': temperature,
-        'topP': topP,
-        'maxTokens': maxTokens,
-        'seed': _seed(),
-      });
+      await _channel.invokeMethod(
+        temporarySession ? 'generateTemporary' : 'generate',
+        {
+          'requestId': requestId,
+          'prompt': prompt,
+          if (imagePath != null && imagePath.isNotEmpty) 'imagePath': imagePath,
+          'temperature': temperature,
+          'topP': topP,
+          'maxTokens': maxTokens,
+          'seed': _seed(),
+        },
+      );
       await pending.future;
     } catch (e) {
       _pending.remove(requestId);

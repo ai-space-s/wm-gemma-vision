@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}식단{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <h1>식단</h1>
+</section>
+
+<section class="calendar-layout" data-mode="public">
+  <div class="calendar-panel">
+    <div class="month-toolbar">
+      <button class="icon-button" id="prevMonth" aria-label="이전 달">‹</button>
+      <h2 id="monthTitle"></h2>
+      <button class="icon-button" id="nextMonth" aria-label="다음 달">›</button>
+    </div>
+    <div class="weekday-row">
+      <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span><span>일</span>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+  </div>
+
+  <aside class="detail-panel" id="detailPanel">
+    <button type="button" class="date-button" id="selectedDateLabel"></button>
+    <input type="date" id="datePicker" class="date-picker" aria-label="날짜 선택">
+    <h2 id="detailTitle"></h2>
+    <select id="mealSelector" class="meal-selector" aria-label="식사 선택">
+      <option value="breakfast">조식</option>
+      <option value="lunch" selected>중식</option>
+      <option value="dinner">석식</option>
+    </select>
+    <div id="menuStatus" class="status-line"></div>
+    <div id="menuItems" class="meal-list single"></div>
+  </aside>
+</section>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}
