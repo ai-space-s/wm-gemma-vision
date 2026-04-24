@@ -22,10 +22,13 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -80,6 +83,7 @@ class MainActivity: FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getCurrentLocation" -> getCurrentLocation(result)
+                    "getIpBasedLocation" -> getIpBasedLocation(result)
                     else -> result.notImplemented()
                 }
             }
@@ -504,6 +508,98 @@ class MainActivity: FlutterActivity() {
             "longitude" to location.longitude,
             "provider" to location.provider
         )
+    }
+
+    private fun getIpBasedLocation(result: MethodChannel.Result) {
+        executor.execute {
+            try {
+                val url = URL("https://ipwho.is/")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8_000
+                    readTimeout = 8_000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "GemmaVision/1.0")
+                }
+
+                val statusCode = connection.responseCode
+                val stream = if (statusCode in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
+                val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                connection.disconnect()
+
+                if (statusCode !in 200..299) {
+                    runOnUiThread {
+                        result.error(
+                            "IP_LOCATION_HTTP_ERROR",
+                            "IP location service returned HTTP $statusCode.",
+                            responseBody
+                        )
+                    }
+                    return@execute
+                }
+
+                val payload = JSONObject(responseBody)
+                if (!payload.optBoolean("success", false)) {
+                    val message = payload.optString("message", "IP location lookup failed.")
+                    runOnUiThread {
+                        result.error("IP_LOCATION_FAILED", message, responseBody)
+                    }
+                    return@execute
+                }
+
+                val latitude = payload.optDouble("latitude", Double.NaN)
+                val longitude = payload.optDouble("longitude", Double.NaN)
+                if (latitude.isNaN() || longitude.isNaN()) {
+                    runOnUiThread {
+                        result.error(
+                            "IP_LOCATION_INVALID",
+                            "IP location response did not include valid coordinates.",
+                            responseBody
+                        )
+                    }
+                    return@execute
+                }
+
+                runOnUiThread {
+                    result.success(
+                        mapOf(
+                            "latitude" to latitude,
+                            "longitude" to longitude,
+                            "provider" to "ipwho.is",
+                            "displayName" to ipLocationDisplayName(payload)
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    result.error(
+                        "IP_LOCATION_UNAVAILABLE",
+                        e.message ?: "IP-based location lookup failed.",
+                        null
+                    )
+                }
+            }
+        }
+    }
+
+    private fun ipLocationDisplayName(payload: JSONObject): String {
+        val parts = listOf(
+            payload.optString("city", ""),
+            payload.optString("region", ""),
+            payload.optString("country", "")
+        ).map { it.trim() }.filter { it.isNotEmpty() }
+
+        val place = if (parts.isEmpty()) {
+            payload.optString("ip", "").ifBlank { "알 수 없는 위치" }
+        } else {
+            parts.joinToString(", ")
+        }
+
+        return "$place (IP 기반, 부정확할 수 있음)"
     }
 
     private fun messageToText(message: Message): String {

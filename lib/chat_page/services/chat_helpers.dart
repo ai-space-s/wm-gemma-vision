@@ -9,6 +9,7 @@ import '../models/message_models.dart';
 import '../widgets/prompt_bar.dart';
 import 'function_calling_service.dart';
 import 'gemma_service.dart';
+import 'lunch_service.dart';
 import 'speech_service.dart';
 import 'streaming_tts_service.dart';
 import 'text_recognition_service.dart';
@@ -444,6 +445,17 @@ class ChatHelpers {
   ) async {
     final resultJson = await FunctionCallingService.instance.execute(call);
 
+    if (call.name == 'get_meal_menu') {
+      final formattedResult = LunchService.formatMealMenuResponse(
+        resultJson,
+        requestedMeal: call.args['meal']?.toString() ?? 'all',
+      );
+      if (formattedResult != null) {
+        await _completeDirectFunctionResult(formattedResult, messages);
+        return;
+      }
+    }
+
     final nextPrompt =
         '''
 User query: $originalPrompt
@@ -468,6 +480,29 @@ Instructions:
       isInternalCall: true,
       isFunctionResult: true,
     );
+  }
+
+  Future<void> _completeDirectFunctionResult(
+    String text,
+    List<ChatMessage> messages,
+  ) async {
+    final currentAiMsg = messages.isNotEmpty && !messages.last.isUser
+        ? messages.last
+        : null;
+
+    if (currentAiMsg != null) {
+      currentAiMsg
+        ..text = text
+        ..isStreaming = false
+        ..isFunctionResult = true;
+    }
+
+    _isGenerating = false;
+    _onStateChanged();
+
+    await _streamingTts.startLoading();
+    _streamingTts.addText(text, text);
+    await _streamingTts.onMessageComplete();
   }
 
   // Quick action shortcuts
