@@ -32,7 +32,13 @@ class DownloadPageLogic {
   static const platform = MethodChannel('com.tommasogiovannini.gemma/assets');
 
   Timer? _monitoringTimer;
+  Timer? _retryTimer;
   bool _cancelRequested = false;
+  int _downloadRecoveryAttempts = 0;
+  String? _activeTaskId;
+
+  static const int _maxDownloadRecoveryAttempts = 3;
+  static const Duration _downloadRecoveryDelay = Duration(seconds: 8);
 
   DownloadPageLogic({
     required this.target,
@@ -55,6 +61,8 @@ class DownloadPageLogic {
   void dispose() {
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
   }
 
   Future<bool> checkIfModelExists() async {
@@ -186,11 +194,8 @@ class DownloadPageLogic {
     try {
       setDownloadStatus(DownloadStatus.checkingAccess);
 
-      if (target == DownloadTarget.mainModel) {
-        final exists = await checkIfModelExists();
-        if (!exists) {
-          setDownloadStatus(DownloadStatus.notStarted);
-        }
+      final exists = await checkIfModelExists();
+      if (exists) {
         return;
       }
 
@@ -216,35 +221,40 @@ class DownloadPageLogic {
 
         if (task.taskId.isEmpty) {
           await DownloadStateManager.clearDownloadState();
+          setDownloadStatus(DownloadStatus.notStarted);
           return;
         }
 
-        if (task.filename != currentModelName) return;
+        if (task.filename != currentModelName) {
+          setDownloadStatus(DownloadStatus.notStarted);
+          return;
+        }
 
         switch (task.status) {
           case DownloadTaskStatus.paused:
+            _activeTaskId = task.taskId;
             setDownloadStatus(DownloadStatus.paused);
             monitorDownload(task.taskId);
             break;
           case DownloadTaskStatus.running:
           case DownloadTaskStatus.enqueued:
+            _activeTaskId = task.taskId;
             setDownloadStatus(DownloadStatus.downloading);
             monitorDownload(task.taskId);
             break;
           case DownloadTaskStatus.complete:
-            if (await checkIfModelExists()) {
-              await _markCurrentModelDownloadCompleted();
-              setDownloadStatus(DownloadStatus.completed);
-            } else {
-              await DownloadStateManager.clearDownloadState();
-            }
+            await _completeBackgroundDownload();
             break;
           case DownloadTaskStatus.failed:
-            setDownloadStatus(DownloadStatus.failed);
+            await _scheduleTaskRetry(task.taskId);
+            break;
+          case DownloadTaskStatus.canceled:
             await DownloadStateManager.clearDownloadState();
+            setDownloadStatus(DownloadStatus.notStarted);
             break;
           default:
             await DownloadStateManager.clearDownloadState();
+            setDownloadStatus(DownloadStatus.notStarted);
             break;
         }
       } else if (savedState == 'completed') {
@@ -253,10 +263,7 @@ class DownloadPageLogic {
           setDownloadStatus(DownloadStatus.notStarted);
         }
       } else {
-        final exists = await checkIfModelExists();
-        if (!exists) {
-          setDownloadStatus(DownloadStatus.notStarted);
-        }
+        setDownloadStatus(DownloadStatus.notStarted);
       }
     } catch (e) {
       Logger.error('Error checking for ongoing downloads: $e');
@@ -385,9 +392,15 @@ class DownloadPageLogic {
   Future<void> downloadModel(String? accessToken) async {
     setDownloadStatus(DownloadStatus.downloading);
     _cancelRequested = false;
+    _downloadRecoveryAttempts = 0;
+    _retryTimer?.cancel();
+    _retryTimer = null;
 
     try {
-      if (modelRuntime == 'litert_lm') {
+      if (modelRuntime == 'litert_lm' && !kIsWeb) {
+        await _startBackgroundSingleModelDownload(accessToken);
+        return;
+      } else if (modelRuntime == 'litert_lm') {
         await _downloadSingleModelFile(accessToken);
       } else {
         await _downloadMlcRepository(accessToken);
@@ -405,6 +418,50 @@ class DownloadPageLogic {
         handleError('Failed to download Gemma 4 model: $e');
       }
     }
+  }
+
+  Future<void> _startBackgroundSingleModelDownload(String? accessToken) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final targetFile = File('${dir.path}/$modelName');
+
+    if (await _singleModelFileIsValid(targetFile)) {
+      await _markCurrentModelDownloadCompleted();
+      setDownloadStatus(DownloadStatus.completed);
+      return;
+    }
+
+    if (await targetFile.exists()) {
+      try {
+        await targetFile.delete();
+      } catch (e) {
+        Logger.warning(
+          'Could not delete stale partial model before download: $e',
+        );
+      }
+    }
+
+    final taskId = await DownloadManager.startDownload(
+      url: currentDownloadUrl,
+      fileName: currentModelName,
+      accessToken: accessToken,
+    );
+
+    if (taskId == null) {
+      throw Exception('failed to create background download task');
+    }
+
+    _activeTaskId = taskId;
+    await DownloadStateManager.saveDownloadInProgress(taskId);
+    setProgress(
+      DownloadProgress(
+        totalBytes: 100,
+        downloadedBytes: 0,
+        downloadRate: 0,
+        remainingTime: Duration.zero,
+        status: DownloadTaskStatus.enqueued,
+      ),
+    );
+    monitorDownload(taskId);
   }
 
   Future<void> _downloadMlcRepository(String? accessToken) async {
@@ -641,6 +698,7 @@ class DownloadPageLogic {
 
   void monitorDownload(String taskId) {
     _monitoringTimer?.cancel();
+    _activeTaskId = taskId;
 
     _monitoringTimer = Timer.periodic(const Duration(seconds: 1), (
       timer,
@@ -681,15 +739,12 @@ class DownloadPageLogic {
           case DownloadTaskStatus.complete:
             timer.cancel();
             _monitoringTimer = null;
-            setDownloadStatus(DownloadStatus.completed);
-            await _markCurrentModelDownloadCompleted();
+            await _completeBackgroundDownload();
             break;
           case DownloadTaskStatus.failed:
             timer.cancel();
             _monitoringTimer = null;
-            setDownloadStatus(DownloadStatus.failed);
-            await DownloadStateManager.clearDownloadState();
-            handleError('Download failed');
+            await _scheduleTaskRetry(task.taskId);
             break;
           case DownloadTaskStatus.canceled:
             timer.cancel();
@@ -708,8 +763,78 @@ class DownloadPageLogic {
         }
       } catch (e) {
         timer.cancel();
-        handleError('Error monitoring download: $e');
+        _monitoringTimer = null;
+        if (_activeTaskId != null) {
+          Logger.warning(
+            'Error monitoring download, will retry status check: $e',
+          );
+          setDownloadStatus(DownloadStatus.retrying);
+          _retryTimer?.cancel();
+          _retryTimer = Timer(_downloadRecoveryDelay, () {
+            final taskToMonitor = _activeTaskId;
+            if (!_cancelRequested && taskToMonitor != null) {
+              monitorDownload(taskToMonitor);
+            }
+          });
+        } else {
+          handleError('Error monitoring download: $e');
+        }
       }
+    });
+  }
+
+  Future<void> _completeBackgroundDownload() async {
+    setDownloadStatus(DownloadStatus.checkingAccess);
+    _downloadRecoveryAttempts = 0;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+
+    if (await checkIfModelExists()) {
+      await _markCurrentModelDownloadCompleted();
+      setDownloadStatus(DownloadStatus.completed);
+      return;
+    }
+
+    await DownloadStateManager.clearDownloadState();
+    handleError('Downloaded model did not pass verification. Please retry.');
+  }
+
+  Future<void> _scheduleTaskRetry(String failedTaskId) async {
+    if (_cancelRequested) return;
+
+    if (_downloadRecoveryAttempts >= _maxDownloadRecoveryAttempts) {
+      await DownloadStateManager.clearDownloadState();
+      handleError(
+        'Download could not recover after $_maxDownloadRecoveryAttempts attempts. Please check the network and retry.',
+      );
+      return;
+    }
+
+    _downloadRecoveryAttempts++;
+    setDownloadStatus(DownloadStatus.retrying);
+    setErrorMessages([]);
+    Logger.warning(
+      'Download task failed; retrying automatically '
+      '($_downloadRecoveryAttempts/$_maxDownloadRecoveryAttempts).',
+    );
+
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_downloadRecoveryDelay, () async {
+      if (_cancelRequested) return;
+
+      final newTaskId = await DownloadManager.retryDownload(failedTaskId);
+      if (newTaskId == null) {
+        await DownloadStateManager.clearDownloadState();
+        handleError(
+          'Download retry failed. Please check the network and retry.',
+        );
+        return;
+      }
+
+      _activeTaskId = newTaskId;
+      await DownloadStateManager.saveDownloadInProgress(newTaskId);
+      setDownloadStatus(DownloadStatus.downloading);
+      monitorDownload(newTaskId);
     });
   }
 
@@ -749,6 +874,8 @@ class DownloadPageLogic {
   Future<void> cancelDownload() async {
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _cancelRequested = true;
     await DownloadManager.cancelAndDeleteDownload();
     await DownloadStateManager.clearDownloadState();
@@ -757,13 +884,27 @@ class DownloadPageLogic {
   }
 
   Future<void> pauseDownload() async {
-    handleError(
-      'Pause is not supported for this model download. Cancel and retry instead.',
-    );
+    if (_activeTaskId == null) return;
+    await DownloadManager.pauseDownload();
+    setDownloadStatus(DownloadStatus.paused);
   }
 
   Future<void> resumeDownload() async {
-    await startDownload();
+    if (_activeTaskId == null) {
+      await startDownload();
+      return;
+    }
+
+    final newTaskId = await DownloadManager.resumeDownload();
+    if (newTaskId == null) {
+      await startDownload();
+      return;
+    }
+
+    _activeTaskId = newTaskId;
+    await DownloadStateManager.saveDownloadInProgress(newTaskId);
+    setDownloadStatus(DownloadStatus.downloading);
+    monitorDownload(newTaskId);
   }
 
   Future<void> _markCurrentModelDownloadCompleted() async {

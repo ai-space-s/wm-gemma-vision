@@ -136,6 +136,8 @@ class DownloadManager {
         headers: headers,
         showNotification: true,
         openFileFromNotification: false,
+        requiresStorageNotLow: false,
+        timeout: 30000,
         saveInPublicStorage: false, // Use app-specific storage
       );
 
@@ -178,6 +180,30 @@ class DownloadManager {
       return newTaskId;
     } catch (e) {
       Logger.error('Error while resuming download: $e');
+      return null;
+    }
+  }
+
+  /// Retry a failed background task. flutter_downloader creates a new task id.
+  static Future<String?> retryDownload(String taskId) async {
+    if (kIsWeb) return null;
+
+    try {
+      final newTaskId = await FlutterDownloader.retry(
+        taskId: taskId,
+        requiresStorageNotLow: false,
+        timeout: 30000,
+      );
+
+      if (newTaskId != null) {
+        _currentTaskId = newTaskId;
+        Logger.info('Download retried with new ID: $newTaskId');
+      } else {
+        Logger.warning('Retry returned a null taskId');
+      }
+      return newTaskId;
+    } catch (e) {
+      Logger.error('Error while retrying download: $e');
       return null;
     }
   }

@@ -219,6 +219,9 @@ class MainActivity: FlutterActivity() {
                     "reset" -> {
                         executor.execute {
                             try {
+                                val previousConversation = gemmaConversation
+                                gemmaConversation = null
+                                previousConversation?.let { closeConversation(it) }
                                 gemmaConversation = gemmaEngine?.createConversation()
                                 runOnUiThread { result.success(true) }
                             } catch (e: Exception) {

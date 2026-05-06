@@ -7,6 +7,7 @@ enum DownloadStatus {
   authenticating,
   awaitingLicenseAcceptance,
   downloading,
+  retrying,
   copying, // Assets에서 복사 중인 상태
   paused,
   completed,

@@ -29,6 +29,7 @@ class ModernUIWidgets {
         color = Colors.purple;
         break;
       case DownloadStatus.downloading:
+      case DownloadStatus.retrying:
         icon = Icons.downloading_rounded;
         color = Colors.blue;
         animate = true;
@@ -97,6 +98,10 @@ class ModernUIWidgets {
             ? '${progress.downloadedBytes}% completed'
             : 'Starting download...';
         break;
+      case DownloadStatus.retrying:
+        title = 'Recovering Download';
+        subtitle = 'Connection changed. Retrying automatically...';
+        break;
       case DownloadStatus.copying: // [추가] 복사 중 메시지
         title = 'Copying Model';
         subtitle = 'Copying model files from assets...';
@@ -151,7 +156,8 @@ class ModernUIWidgets {
 
     // Checking/Auth state
     if (status == DownloadStatus.checkingAccess ||
-        status == DownloadStatus.authenticating) {
+        status == DownloadStatus.authenticating ||
+        status == DownloadStatus.retrying) {
       return const SizedBox(
         width: 200,
         child: LinearProgressIndicator(minHeight: 4),
@@ -196,6 +202,7 @@ class ModernUIWidgets {
         return _buildButton('Start Download', onStart);
 
       case DownloadStatus.downloading:
+      case DownloadStatus.retrying:
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
