@@ -1,23 +1,32 @@
 // lib/chat_page/services/geocoding_service.dart
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 class GeocodingService {
   static final GeocodingService instance = GeocodingService._internal();
 
-  GeocodingService._internal({HttpClient Function()? clientFactory})
-    : _clientFactory = clientFactory ?? HttpClient.new;
+  GeocodingService._internal({
+    HttpClient Function()? clientFactory,
+    Duration timeout = defaultTimeout,
+  }) : _clientFactory = clientFactory ?? HttpClient.new,
+       _timeout = timeout;
 
-  GeocodingService.forTesting({required HttpClient Function() clientFactory})
-    : _clientFactory = clientFactory;
+  GeocodingService.forTesting({
+    required HttpClient Function() clientFactory,
+    Duration timeout = defaultTimeout,
+  }) : _clientFactory = clientFactory,
+       _timeout = timeout;
 
   static const String _baseUrl = 'nominatim.openstreetmap.org';
   static const String _searchEndpoint = '/search';
   static const String _reverseEndpoint = '/reverse';
   static const String _userAgent = 'GemmaVision/1.0 (https://gemmavision.com/)';
+  static const Duration defaultTimeout = Duration(seconds: 8);
   static DateTime? _lastRequestAt;
 
   final HttpClient Function() _clientFactory;
+  final Duration _timeout;
 
   Future<GeocodingResult> geocode(String locationName) async {
     final query = locationName.trim();
@@ -85,24 +94,34 @@ class GeocodingService {
     await _respectPublicNominatimRateLimit();
 
     final client = _clientFactory();
+    client.connectionTimeout = _timeout;
     try {
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-
-      final response = await request.close();
-      final responseBody = await response.transform(utf8.decoder).join();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'Nominatim returned status code ${response.statusCode}: $responseBody',
-          uri: uri,
-        );
-      }
-
-      return jsonDecode(responseBody);
+      return await _getJsonWithClient(client, uri).timeout(_timeout);
+    } on TimeoutException catch (e) {
+      throw TimeoutException(
+        'Geocoding request timed out. Check the internet connection.',
+        e.duration,
+      );
     } finally {
-      client.close();
+      client.close(force: true);
     }
+  }
+
+  Future<dynamic> _getJsonWithClient(HttpClient client, Uri uri) async {
+    final request = await client.getUrl(uri);
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+
+    final response = await request.close();
+    final responseBody = await response.transform(utf8.decoder).join();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException(
+        'Nominatim returned status code ${response.statusCode}: $responseBody',
+        uri: uri,
+      );
+    }
+
+    return jsonDecode(responseBody);
   }
 
   Future<void> _respectPublicNominatimRateLimit() async {

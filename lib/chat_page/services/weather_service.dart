@@ -1,4 +1,5 @@
 // lib/chat_page/services/weather_service.dart
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,10 +8,24 @@ class WeatherService {
   static final WeatherService _instance = WeatherService._internal();
   static WeatherService get instance => _instance;
 
-  WeatherService._internal();
+  WeatherService._internal({
+    HttpClient Function()? clientFactory,
+    Duration timeout = defaultTimeout,
+  }) : _clientFactory = clientFactory ?? HttpClient.new,
+       _timeout = timeout;
+
+  WeatherService.forTesting({
+    required HttpClient Function() clientFactory,
+    Duration timeout = defaultTimeout,
+  }) : _clientFactory = clientFactory,
+       _timeout = timeout;
 
   static const String _baseUrl = 'api.open-meteo.com';
   static const String _endpoint = '/v1/forecast';
+  static const Duration defaultTimeout = Duration(seconds: 8);
+
+  final HttpClient Function() _clientFactory;
+  final Duration _timeout;
 
   /// Fetches weather data.
   Future<String> getWeather({
@@ -18,57 +33,78 @@ class WeatherService {
     required double longitude,
     String? locationName,
   }) async {
-    final client = HttpClient();
+    final client = _clientFactory();
+    client.connectionTimeout = _timeout;
     try {
-      double targetLat = latitude;
-      double targetLon = longitude;
-
-      if (targetLat < -90 ||
-          targetLat > 90 ||
-          targetLon < -180 ||
-          targetLon > 180 ||
-          (targetLat == 0.0 && targetLon == 0.0)) {
-        return jsonEncode({
-          "status": "error",
-          "message":
-              "Valid latitude and longitude are required for weather lookup.",
-        });
-      }
-
-      final queryParams = {
-        'latitude': targetLat.toString(),
-        'longitude': targetLon.toString(),
-        'current':
-            'temperature_2m,wind_speed_10m,weather_code,relative_humidity_2m',
-        'temperature_unit': 'celsius',
-        'wind_speed_unit': 'kmh', // Use km/h as requested
-      };
-
-      final uri = Uri.https(_baseUrl, _endpoint, queryParams);
-
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.contentTypeHeader, "application/json");
-      request.headers.set(HttpHeaders.userAgentHeader, "GemmaFunctionApp/1.0");
-
-      final response = await request.close();
-
-      if (response.statusCode == 200) {
-        final responseBody = await response.transform(utf8.decoder).join();
-        final data = jsonDecode(responseBody);
-        return _formatWeatherData(data, targetLat, targetLon, locationName);
-      } else {
-        return jsonEncode({
-          "status": "error",
-          "message": "API returned status code ${response.statusCode}",
-        });
-      }
+      return await _fetchWeather(
+        client: client,
+        latitude: latitude,
+        longitude: longitude,
+        locationName: locationName,
+      ).timeout(_timeout);
+    } on TimeoutException {
+      return jsonEncode({
+        "status": "error",
+        "code": "weather_timeout",
+        "message": "Weather request timed out. Check the internet connection.",
+      });
     } catch (e) {
       return jsonEncode({
         "status": "error",
         "message": "Failed to fetch weather: $e",
       });
     } finally {
-      client.close();
+      client.close(force: true);
+    }
+  }
+
+  Future<String> _fetchWeather({
+    required HttpClient client,
+    required double latitude,
+    required double longitude,
+    String? locationName,
+  }) async {
+    double targetLat = latitude;
+    double targetLon = longitude;
+
+    if (targetLat < -90 ||
+        targetLat > 90 ||
+        targetLon < -180 ||
+        targetLon > 180 ||
+        (targetLat == 0.0 && targetLon == 0.0)) {
+      return jsonEncode({
+        "status": "error",
+        "message":
+            "Valid latitude and longitude are required for weather lookup.",
+      });
+    }
+
+    final queryParams = {
+      'latitude': targetLat.toString(),
+      'longitude': targetLon.toString(),
+      'current':
+          'temperature_2m,wind_speed_10m,weather_code,relative_humidity_2m',
+      'temperature_unit': 'celsius',
+      'wind_speed_unit': 'kmh', // Use km/h as requested
+    };
+
+    final uri = Uri.https(_baseUrl, _endpoint, queryParams);
+
+    final request = await client.getUrl(uri);
+    request.headers.set(HttpHeaders.contentTypeHeader, "application/json");
+    request.headers.set(HttpHeaders.userAgentHeader, "GemmaFunctionApp/1.0");
+
+    final response = await request.close();
+
+    if (response.statusCode == 200) {
+      final responseBody = await response.transform(utf8.decoder).join();
+      final data = jsonDecode(responseBody);
+      return _formatWeatherData(data, targetLat, targetLon, locationName);
+    } else {
+      return jsonEncode({
+        "status": "error",
+        "message": "API returned status code ${response.statusCode}",
+      });
     }
   }
 

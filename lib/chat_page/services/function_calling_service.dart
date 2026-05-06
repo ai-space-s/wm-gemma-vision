@@ -1,4 +1,5 @@
 // lib/chat_page/services/function_calling_service.dart
+import 'dart:async';
 import 'dart:convert';
 
 import '../../app_settings.dart';
@@ -19,15 +20,24 @@ class FunctionCallingService {
   FunctionCallingService._internal({
     DateTime Function()? clock,
     List<ChatFunctionTool>? tools,
+    Duration toolExecutionTimeout = _defaultToolExecutionTimeout,
   }) : _clock = clock ?? DateTime.now,
-       _tools = tools ?? _buildDefaultTools(clock ?? DateTime.now);
+       _tools = tools ?? _buildDefaultTools(clock ?? DateTime.now),
+       _toolExecutionTimeout = toolExecutionTimeout;
 
-  FunctionCallingService.forTesting({required DateTime now})
-    : _clock = (() => now),
-      _tools = _buildDefaultTools(() => now);
+  FunctionCallingService.forTesting({
+    required DateTime now,
+    List<ChatFunctionTool>? tools,
+    Duration toolExecutionTimeout = _defaultToolExecutionTimeout,
+  }) : _clock = (() => now),
+       _tools = tools ?? _buildDefaultTools(() => now),
+       _toolExecutionTimeout = toolExecutionTimeout;
+
+  static const Duration _defaultToolExecutionTimeout = Duration(seconds: 35);
 
   final DateTime Function() _clock;
   final List<ChatFunctionTool> _tools;
+  final Duration _toolExecutionTimeout;
 
   Future<FunctionCall?> predict(String userQuery) async {
     if (!AppSettings.instance.enableFunctionCalling) return null;
@@ -50,7 +60,14 @@ class FunctionCallingService {
     for (final tool in _tools) {
       if (tool.name == call.name) {
         try {
-          return await tool.execute(call.args);
+          return await tool.execute(call.args).timeout(_toolExecutionTimeout);
+        } on TimeoutException {
+          return jsonEncode({
+            'status': 'error',
+            'code': 'tool_timeout',
+            'message':
+                '${call.name} timed out. Check the internet connection and try again.',
+          });
         } catch (e) {
           return jsonEncode({
             'status': 'error',

@@ -74,6 +74,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _loadSettings().then((_) => _bootstrap());
   }
 
+  void _requestRootFocusOnNextFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      if (!_rootFocus.canRequestFocus) return;
+      _rootFocus.requestFocus();
+    });
+  }
+
   /// 저장된 설정을 불러옵니다 (AppSettings 및 SharedPreferences)
   Future<void> _loadSettings() async {
     // [수정] AppSettings를 로드하여 프롬프트 설정을 가져옴
@@ -173,10 +181,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       _speechService = result.speechService;
       _keyboardHandler = result.keyboardHandler;
       _textRecognition = result.textRecognition;
+      _keyboardHandler?.attachGlobalHandler();
 
       if (mounted && !_disposed) {
         setState(() => _initialising = false);
-        _rootFocus.requestFocus();
+        _requestRootFocusOnNextFrame();
         _fadeController.forward();
         _slideController.forward();
       }
@@ -219,6 +228,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _slideController.dispose();
     _streamingTts.stop();
     _tts.stop();
+    _keyboardHandler?.dispose();
     _speechService?.dispose();
     _textRecognition?.dispose();
     _rootFocus.dispose();
@@ -391,6 +401,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           }
         }
       });
+      _requestRootFocusOnNextFrame();
     }
   }
 

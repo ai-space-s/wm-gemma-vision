@@ -24,6 +24,7 @@ class KeyboardHandler {
   final VoidCallback _onConnectionTest;
 
   final Set<LogicalKeyboardKey> _pressedKeys = <LogicalKeyboardKey>{};
+  bool _globalHandlerAttached = false;
 
   // [수정] Web 호환성을 위해 Platform.isIOS 대신 defaultTargetPlatform 사용 권장
   // 하지만 여기서는 기존 로직 유지하되, kIsWeb 체크가 이미 있으므로 안전함.
@@ -54,8 +55,12 @@ class KeyboardHandler {
         _onToggleVoice = onToggleVoice,
         _onConnectionTest = onConnectionTest;
 
-  void onShortcut(LogicalKeyboardKey key) {
-    if (!HardwareKeyboard.instance.logicalKeysPressed.contains(key)) {
+  void onShortcut(
+    LogicalKeyboardKey key, {
+    bool requirePressedState = true,
+  }) {
+    if (requirePressedState &&
+        !HardwareKeyboard.instance.logicalKeysPressed.contains(key)) {
       return;
     }
 
@@ -118,11 +123,64 @@ class KeyboardHandler {
             _activateCurrentButton();
           }
           break;
+        default:
+          break;
       }
     } finally {
       Future.delayed(const Duration(milliseconds: 100), () {
         _pressedKeys.remove(key);
       });
+    }
+  }
+
+  void attachGlobalHandler() {
+    if (_globalHandlerAttached) {
+      return;
+    }
+
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
+    _globalHandlerAttached = true;
+  }
+
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (!_isCurrentRouteActive()) {
+      return false;
+    }
+
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return false;
+    }
+
+    final key = event.logicalKey;
+    if (!_isControllerShortcut(key)) {
+      return false;
+    }
+
+    onShortcut(key, requirePressedState: false);
+    return true;
+  }
+
+  bool _isCurrentRouteActive() {
+    final route = ModalRoute.of(_context);
+    return route == null || route.isCurrent;
+  }
+
+  bool _isControllerShortcut(LogicalKeyboardKey key) {
+    switch (key) {
+      case LogicalKeyboardKey.f1:
+      case LogicalKeyboardKey.f2:
+      case LogicalKeyboardKey.f3:
+      case LogicalKeyboardKey.f4:
+      case LogicalKeyboardKey.f5:
+      case LogicalKeyboardKey.f6:
+      case LogicalKeyboardKey.f7:
+      case LogicalKeyboardKey.f8:
+      case LogicalKeyboardKey.f9:
+      case LogicalKeyboardKey.f10:
+      case LogicalKeyboardKey.f11:
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -237,6 +295,10 @@ class KeyboardHandler {
   };
 
   void dispose() {
+    if (_globalHandlerAttached) {
+      HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
+      _globalHandlerAttached = false;
+    }
     _pressedKeys.clear();
   }
 }
